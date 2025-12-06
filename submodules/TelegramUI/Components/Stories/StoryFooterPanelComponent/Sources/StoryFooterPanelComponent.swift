@@ -196,7 +196,7 @@ public final class StoryFooterPanelComponent: Component {
             self.addSubview(self.externalContainerView)
             self.addSubview(self.viewStatsButton)
             
-            self.viewStatsButton.highligthedChanged = { [weak self] highlighted in
+            self.viewStatsButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

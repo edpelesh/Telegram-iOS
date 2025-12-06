@@ -1192,7 +1192,7 @@ final class SectionGroupComponent: Component {
                 itemView.frame = CGRect(origin: CGPoint(x: itemFrame.minX + sideInset, y: itemFrame.minY + floor((itemFrame.height - itemSize.height) / 2.0)), size: itemSize)
                 itemView.isUserInteractionEnabled = false
                 
-                buttonView.highligthedChanged = { [weak buttonView] highlighted in
+                buttonView.highlightedChanged = { [weak buttonView] highlighted in
                     if highlighted {
                         buttonView?.backgroundColor = component.selectionColor
                     } else {

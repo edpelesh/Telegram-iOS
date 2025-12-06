@@ -56,7 +56,7 @@ public final class StoryActionsComponent: Component {
             
             self.addSubview(self.iconView)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

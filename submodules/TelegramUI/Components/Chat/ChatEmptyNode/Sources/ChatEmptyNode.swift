@@ -1240,7 +1240,7 @@ public final class ChatEmptyNodePremiumRequiredChatContent: ASDisplayNode, ChatE
             
             self.button.addSubnode(self.buttonStarsNode)
             
-            self.button.highligthedChanged = { [weak self] highlighted in
+            self.button.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

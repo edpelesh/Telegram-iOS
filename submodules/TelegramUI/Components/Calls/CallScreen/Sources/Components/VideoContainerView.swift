@@ -251,7 +251,7 @@ final class VideoContainerView: HighlightTrackingButton {
         self.shadowContainer.addSublayer(self.bottomShadowLayer)
         self.layer.addSublayer(self.shadowContainer)
         
-        self.highligthedChanged = { [weak self] highlighted in
+        self.highlightedChanged = { [weak self] highlighted in
             guard let self, let params = self.params, !self.videoContainerLayer.bounds.isEmpty, !self.videoContainerLayerTaken else {
                 return
             }

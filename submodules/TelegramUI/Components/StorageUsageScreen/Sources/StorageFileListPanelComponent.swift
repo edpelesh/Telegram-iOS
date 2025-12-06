@@ -279,7 +279,7 @@ private final class FileListItemComponent: Component {
                 self.state?.updated(transition: mappedTransition)
             }
             
-            self.containerButton.highligthedChanged = { [weak self] isHighlighted in
+            self.containerButton.highlightedChanged = { [weak self] isHighlighted in
                 guard let self, let component = self.component, let highlightBackgroundFrame = self.highlightBackgroundFrame else {
                     return
                 }

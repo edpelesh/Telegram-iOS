@@ -413,6 +413,7 @@ swift_library(
         "//submodules/TelegramUI/Components/PeerAllowedReactionsScreen",
         "//submodules/MetalEngine",
         "//submodules/TelegramUI/Components/DustEffect",
+        "//submodules/TelegramUI/Components/LiquidGlassEffect",
         "//submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen",
         "//submodules/TelegramUI/Components/Chat/ChatMessageSelectionInputPanelNode",
         "//submodules/TelegramUI/Components/Chat/ChatQrCodeScreen",

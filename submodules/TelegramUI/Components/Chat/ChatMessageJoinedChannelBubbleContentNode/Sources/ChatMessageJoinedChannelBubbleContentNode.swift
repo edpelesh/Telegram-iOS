@@ -654,7 +654,7 @@ private final class ChannelItemComponent: Component {
                 }
             }
             
-            self.containerButton.highligthedChanged = { [weak self] highlighted in
+            self.containerButton.highlightedChanged = { [weak self] highlighted in
                 if let self, self.bounds.width > 0.0 {
                     let topScale: CGFloat = (self.bounds.width - 6.0) / self.bounds.width
                     

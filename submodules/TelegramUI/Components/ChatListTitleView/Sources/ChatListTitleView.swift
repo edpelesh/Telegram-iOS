@@ -275,7 +275,7 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         self.addSubview(self.buttonView)
         self.addSubview(self.proxyButton)
         
-        self.buttonView.highligthedChanged = { [weak self] highlighted in
+        self.buttonView.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted && !strongSelf.lockView.isHidden && strongSelf.activityIndicator.isHidden {
                     strongSelf.titleNode.layer.removeAnimation(forKey: "opacity")
@@ -297,7 +297,7 @@ public final class ChatListTitleView: UIView, NavigationBarTitleView, Navigation
         
         self.buttonView.addTarget(self, action: #selector(self.buttonPressed), for: .touchUpInside)
         
-        self.proxyButton.highligthedChanged = { [weak self] highlighted in
+        self.proxyButton.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     strongSelf.proxyNode.layer.removeAnimation(forKey: "opacity")

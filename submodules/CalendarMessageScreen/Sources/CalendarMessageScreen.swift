@@ -383,7 +383,7 @@ private final class DayComponent: Component {
             self.layer.addSublayer(self.titleView)
 
             self.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-            self.highligthedChanged = { [weak self] highligthed in
+            self.highlightedChanged = { [weak self] highligthed in
                 guard let strongSelf = self, let mediaPreviewView = strongSelf.mediaPreviewView else {
                     return
                 }

@@ -690,7 +690,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         
         self.attachmentButtonBackground = GlassBackgroundView(frame: CGRect())
         self.attachmentButtonBackground.contentView.addSubview(self.attachmentButton)
-        
+
         self.attachmentButtonIcon = GlassBackgroundView.ContentImageView()
         self.attachmentButtonIcon.isUserInteractionEnabled = false
         self.attachmentButtonBackground.contentView.addSubview(self.attachmentButtonIcon)
@@ -806,7 +806,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         }
         
         self.attachmentButton.addTarget(self, action: #selector(self.attachmentButtonPressed), for: .touchUpInside)
-        self.attachmentButton.highligthedChanged = { [weak self] highlighted in
+        self.attachmentButton.highlightedChanged = { [weak self] highlighted in
             if let self {
                 if highlighted {
                     self.attachmentButtonIcon.layer.removeAnimation(forKey: "opacity")
@@ -903,7 +903,7 @@ public class ChatTextInputPanelNode: ChatInputPanelNode, ASEditableTextNodeDeleg
         self.mediaActionButtons.expandMediaInputButton.addTarget(self, action: #selector(self.expandButtonPressed), for: .touchUpInside)
         self.mediaActionButtons.expandMediaInputButton.alpha = 0.0
         
-        self.searchLayoutClearButton.highligthedChanged = { [weak self] highlighted in
+        self.searchLayoutClearButton.highlightedChanged = { [weak self] highlighted in
             guard let self else {
                 return
             }

@@ -260,7 +260,7 @@ public final class ListActionItemComponent: Component {
             
             self.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 if let self, self.bounds.width > 0.0 {
                     let animateScale = true
                     
@@ -364,7 +364,7 @@ public final class ListActionItemComponent: Component {
             self.container.addSubview(self.button)
             
             self.button.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-            self.button.internalHighligthedChanged = { [weak self] isHighlighted in
+            self.button.internalHighlightedChanged = { [weak self] isHighlighted in
                 guard let self, let component = self.component, component.action != nil else {
                     return
                 }

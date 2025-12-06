@@ -60,7 +60,7 @@ public final class OptionButtonComponent: Component {
             self.addSubview(self.iconView)
             self.addSubview(self.arrowView)
             
-            self.highligthedChanged = { [weak self] highlighed in
+            self.highlightedChanged = { [weak self] highlighed in
                 guard let self else {
                     return
                 }

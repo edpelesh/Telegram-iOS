@@ -149,7 +149,7 @@ public final class EmojiSearchHeaderView: UIView, UITextFieldDelegate {
         self.tapRecognizer = tapRecognizer
         self.addGestureRecognizer(tapRecognizer)
         
-        self.cancelButton.highligthedChanged = { [weak self] highlighted in
+        self.cancelButton.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     if let cancelButtonTitleView = strongSelf.cancelButtonTitle.view {
@@ -174,7 +174,7 @@ public final class EmojiSearchHeaderView: UIView, UITextFieldDelegate {
         }
         self.cancelButton.addTarget(self, action: #selector(self.cancelPressed), for: .touchUpInside)
         
-        self.clearIconButton.highligthedChanged = { [weak self] highlighted in
+        self.clearIconButton.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     strongSelf.clearIconView.layer.removeAnimation(forKey: "opacity")

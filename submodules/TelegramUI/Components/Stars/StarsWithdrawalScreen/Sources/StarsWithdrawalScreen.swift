@@ -2483,7 +2483,7 @@ private final class MenuButtonComponent: Component {
             
             self.button.addTarget(self, action: #selector(self.buttonPressed), for: .touchUpInside)
             
-            self.button.highligthedChanged = { [weak self] highlighted in
+            self.button.highlightedChanged = { [weak self] highlighted in
                 if let self {
                     if highlighted {
                         self.selectionLayer.opacity = 1.0

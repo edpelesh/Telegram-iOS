@@ -439,7 +439,7 @@ public final class MediaRecordingPanelComponent: Component {
                     self.cancelButton = cancelButton
                     self.addSubview(cancelButton)
                     
-                    cancelButton.highligthedChanged = { [weak self] highlighted in
+                    cancelButton.highlightedChanged = { [weak self] highlighted in
                         guard let self else {
                             return
                         }

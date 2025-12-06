@@ -77,7 +77,7 @@ final class EmojiExpandedInfoView: OverlayMaskContainerView {
         self.addSubview(self.actionButton)
         self.actionButton.addSubview(self.actionTitleView)
         
-        self.actionButton.internalHighligthedChanged = { [weak self] highlighted in
+        self.actionButton.internalHighlightedChanged = { [weak self] highlighted in
             if let self, self.bounds.width > 0.0 {
                 let topScale: CGFloat = (self.bounds.width - 8.0) / self.bounds.width
                 let maxScale: CGFloat = (self.bounds.width + 2.0) / self.bounds.width

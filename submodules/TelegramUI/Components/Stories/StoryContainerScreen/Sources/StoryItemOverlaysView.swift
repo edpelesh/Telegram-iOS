@@ -263,7 +263,7 @@ final class StoryItemOverlaysView: UIView {
             self.addSubview(self.shadowView)
             self.addSubview(self.coverView)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

@@ -641,7 +641,7 @@ private class SendStarsButtonView: HighlightTrackingButton, TGPhotoSendStarsButt
         self.addSubview(self.backgroundView)
         self.addSubview(self.textNode.view)
         
-        self.highligthedChanged = { [weak self] highlighted in
+        self.highlightedChanged = { [weak self] highlighted in
             guard let self else {
                 return
             }

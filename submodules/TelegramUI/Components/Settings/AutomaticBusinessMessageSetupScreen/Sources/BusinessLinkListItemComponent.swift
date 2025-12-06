@@ -94,7 +94,7 @@ final class BusinessLinkListItemComponent: Component {
             self.extractedContainerView.contentView.addSubview(self.swipeOptionContainer)
             
             self.containerButton.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-            self.containerButton.internalHighligthedChanged = { [weak self] isHighlighted in
+            self.containerButton.internalHighlightedChanged = { [weak self] isHighlighted in
                 guard let self else {
                     return
                 }

@@ -8,7 +8,7 @@ open class HighlightableButton: HighlightTrackingButton {
         
         self.adjustsImageWhenHighlighted = false
         self.adjustsImageWhenDisabled = false
-        self.internalHighligthedChanged = { [weak self] highlighted in
+        self.internalHighlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     strongSelf.layer.removeAnimation(forKey: "opacity")

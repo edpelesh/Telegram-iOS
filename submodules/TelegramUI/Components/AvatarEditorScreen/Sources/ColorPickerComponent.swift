@@ -144,7 +144,7 @@ final class ColorPickerComponent: Component {
             self.cancelButton.addTarget(self, action: #selector(self.cancelPressed), for: .touchUpInside)
             self.doneButton.addTarget(self, action: #selector(self.donePressed), for: .touchUpInside)
             
-            self.cancelButton.highligthedChanged = { [weak self] highlighted in
+            self.cancelButton.highlightedChanged = { [weak self] highlighted in
                 if let strongSelf = self {
                     if highlighted {
                         strongSelf.cancelHighlightView.layer.removeAnimation(forKey: "opacity")
@@ -156,7 +156,7 @@ final class ColorPickerComponent: Component {
                 }
             }
             
-            self.doneButton.highligthedChanged = { [weak self] highlighted in
+            self.doneButton.highlightedChanged = { [weak self] highlighted in
                 if let strongSelf = self {
                     if highlighted {
                         strongSelf.doneHighlightView.layer.removeAnimation(forKey: "opacity")

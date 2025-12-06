@@ -126,7 +126,7 @@ final class TranslateButtonComponent: Component {
             self.addSubview(self.backgroundView)
             self.addSubview(self.centralContentView)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 if let strongSelf = self, let component = strongSelf.component {
                     if highlighted {
                         strongSelf.backgroundView.backgroundColor = component.theme.list.itemHighlightedBackgroundColor

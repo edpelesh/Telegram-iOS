@@ -193,7 +193,7 @@ public class BotCheckoutPaymentMethodItemNode: ActionSheetItemNode {
         self.addSubnode(self.iconNode)
         self.addSubnode(self.checkNode)
         
-        self.button.highligthedChanged = { [weak self] highlighted in
+        self.button.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     strongSelf.backgroundNode.backgroundColor = theme.itemHighlightedBackgroundColor

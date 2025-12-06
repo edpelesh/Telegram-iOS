@@ -160,7 +160,7 @@ final class ButtonsComponent: Component {
             self.backgroundView.addSubview(self.closeButton)
             self.backgroundView.addSubview(self.closeIcon)
             
-            self.closeButton.highligthedChanged = { [weak self] highlighted in
+            self.closeButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

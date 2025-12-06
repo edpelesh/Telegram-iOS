@@ -3,6 +3,7 @@ import UIKit
 import Display
 import ComponentFlow
 import GlassBackgroundComponent
+import simd
 
 private final class RestingBackgroundView: UIVisualEffectView {
     var isDark: Bool?
@@ -58,6 +59,8 @@ private final class RestingBackgroundView: UIVisualEffectView {
 }
 
 public final class LiquidLensView: UIView {
+    public var onDragInteraction: ((CGFloat, CGFloat, CGFloat, Bool) -> Void)?
+    
     private struct Params: Equatable {
         var size: CGSize
         var selectionX: CGFloat
@@ -88,6 +91,7 @@ public final class LiquidLensView: UIView {
     private let backgroundContainerContainer: UIView
     private let backgroundContainer: GlassBackgroundContainerView
     private let backgroundView: GlassBackgroundView
+    private let liftedBackgroundView: GlassBackgroundView
     private var lensView: UIView?
     private let liftedContainerView: UIView
     public let contentView: UIView
@@ -97,6 +101,11 @@ public final class LiquidLensView: UIView {
     private var legacyContentMaskView: UIView?
     private var legacyContentMaskBlobView: UIImageView?
     private var legacyLiftedContentBlobMaskView: UIImageView?
+    
+    private var interactionUpdateTimer: ConstantDisplayLinkAnimator?
+    private var lastGestureVelocity: SIMD2<Float> = SIMD2<Float>(0, 0)
+    public private(set) var lastKnobPosition: SIMD2<Float>?
+    public private(set) var isInteracting: Bool = false
 
     public var selectedContentView: UIView {
         return self.liftedContainerView
@@ -117,29 +126,113 @@ public final class LiquidLensView: UIView {
         return self.params?.selectionWidth
     }
 
+    public func beginElasticInteraction(at point: CGPoint) {
+        if #available(iOS 26.0, *) {
+            return
+        }
+        let localPoint = self.convert(point, to: self.backgroundView)
+        self.backgroundView.updateInitialTouchPoint(localPoint)
+        self.backgroundView.beginElasticInteraction()
+    }
+
+    public func updateElasticInteraction(translation: CGPoint) {
+        if #available(iOS 26.0, *) {
+            return
+        }
+        self.backgroundView.updateElasticInteraction(translation: translation)
+    }
+
+    public func endElasticInteraction(velocity: CGPoint) {
+        if #available(iOS 26.0, *) {
+            return
+        }
+        self.backgroundView.endElasticInteraction(velocity: velocity)
+    }
+    
+    public func updateGestureVelocity(_ velocity: SIMD2<Float>) {
+        self.lastGestureVelocity = velocity
+    }
+    
+    public func getKnobCenterPosition() -> SIMD2<Float>? {
+        return self.lastKnobPosition
+    }
+    
+    public func getCurrentLensFrame() -> CGRect? {
+        guard let params = self.params else { return nil }
+        return CGRect(
+            origin: CGPoint(x: max(0.0, min(params.selectionX, params.size.width - params.selectionWidth)), y: 0.0),
+            size: CGSize(width: params.selectionWidth, height: params.size.height)
+        )
+    }
+    
+    public func setInteractionState(_ interacting: Bool) {
+        self.isInteracting = interacting
+        
+        let targetScale: CGFloat = interacting ? 1.05 : 1.0
+        
+        UIView.animate(withDuration: 0.25,
+                       delay: 0,
+                       usingSpringWithDamping: 0.8,
+                       initialSpringVelocity: 0.5,
+                       options: [.allowUserInteraction, .beginFromCurrentState],
+                       animations: {
+            self.backgroundView.transform = CGAffineTransform(scaleX: targetScale, y: targetScale)
+            self.contentView.transform = CGAffineTransform(scaleX: targetScale, y: targetScale)
+        }, completion: nil)
+    }
+    
+    public func updateKnobPosition(_ position: SIMD2<Float>) {
+        self.lastKnobPosition = position
+    }
+    
+    public func updateTouchPositionRelativeToKnob(_ position: SIMD2<Float>) {
+        if let params = self.params {
+            let horizontalDelta = CGFloat(position.x)
+            onDragInteraction?(horizontalDelta, params.size.width, params.size.height, isInteracting)
+        }
+    }
+    public func getViewsToIgnore() -> [UIView] {
+        var views: [UIView] = []
+        if self.liftedBackgroundView.superview != nil {
+            views.append(self.liftedBackgroundView)
+        }
+        return views
+    }
+    
+    public func getViewsToHide() -> [UIView] {
+        var views: [UIView] = []
+        if let legacyContentMaskView = self.legacyContentMaskView {
+            views.append(legacyContentMaskView)
+        }
+        views.append(self.backgroundView)
+        return views
+    }
+    
     override public init(frame: CGRect) {
         self.containerView = UIView()
-        
+
         self.backgroundContainerContainer = UIView()
         self.backgroundContainer = GlassBackgroundContainerView()
-        
+
         self.backgroundView = GlassBackgroundView()
-        
+        self.liftedBackgroundView = GlassBackgroundView()
+
         self.contentView = UIView()
+        self.contentView.clipsToBounds = false
+
         self.liftedContainerView = UIView()
+        self.liftedContainerView.clipsToBounds = false
 
         self.restingBackgroundView = RestingBackgroundView()
 
         super.init(frame: frame)
-        
-        self.backgroundContainerContainer.addSubview(self.backgroundContainer)
-        self.addSubview(self.backgroundContainerContainer)
-        
-        self.backgroundContainer.contentView.addSubview(self.backgroundView)
-        self.backgroundView.contentView.addSubview(self.containerView)
-        self.containerView.isUserInteractionEnabled = false
-        
+        self.clipsToBounds = false
+
         if #available(iOS 26.0, *) {
+            self.backgroundContainer.contentView.addSubview(self.backgroundView)
+            self.backgroundView.contentView.addSubview(self.containerView)
+            self.containerView.isUserInteractionEnabled = false
+
             if let viewClass = NSClassFromString("_UILiquidLensView") as AnyObject as? NSObjectProtocol {
                 let allocSelector = NSSelectorFromString("alloc")
                 let initSelector = NSSelectorFromString("initWithRestingBackground:")
@@ -147,18 +240,31 @@ public final class LiquidLensView: UIView {
                 let instance = objcAlloc.perform(initSelector, with: UIView()).takeUnretainedValue()
                 self.lensView = instance as? UIView
             }
+        } else {
+            self.addSubview(self.liftedBackgroundView)
+            self.liftedBackgroundView.isUserInteractionEnabled = false
+            self.liftedBackgroundView.isHidden = true
+
+            self.addSubview(self.backgroundView)
+            self.addSubview(self.containerView)
+            self.containerView.isUserInteractionEnabled = false
+            
+            self.backgroundView.elasticMovementEnabled = false
         }
-        
+
+        self.backgroundContainerContainer.addSubview(self.backgroundContainer)
+        self.addSubview(self.backgroundContainerContainer)
+
         if let lensView = self.lensView {
             self.backgroundContainer.layer.zPosition = 1
-            lensView.layer.zPosition = 10.0
-            
+
             self.liftedContainerView.addSubview(self.restingBackgroundView)
-            
+
             self.containerView.addSubview(self.liftedContainerView)
             self.containerView.addSubview(lensView)
             self.containerView.addSubview(self.contentView)
-            
+
+            lensView.layer.zPosition = 16.0
             lensView.perform(NSSelectorFromString("setLiftedContainerView:"), with: self.backgroundContainer.contentView)
             lensView.perform(NSSelectorFromString("setLiftedContentView:"), with: self.liftedContainerView)
             lensView.perform(NSSelectorFromString("setOverridePunchoutView:"), with: self.contentView)
@@ -195,7 +301,7 @@ public final class LiquidLensView: UIView {
             let legacySelectionView = GlassBackgroundView.ContentImageView()
             self.legacySelectionView = legacySelectionView
             self.backgroundView.contentView.insertSubview(legacySelectionView, at: 0)
-            
+
             let legacyContentMaskView = UIView()
             legacyContentMaskView.backgroundColor = .white
             self.legacyContentMaskView = legacyContentMaskView
@@ -289,27 +395,40 @@ public final class LiquidLensView: UIView {
                 shouldScheduleUpdate = true
             }
         } else {
-            transition.animateView {
-                let liftedInset: CGFloat = params.isLifted ? 4.0 : -4.0
-                lensView.bounds = CGRect(origin: CGPoint(), size: CGSize(width: params.baseFrame.width + liftedInset * 2.0, height: params.baseFrame.height + liftedInset * 2.0))
-                lensView.center = CGPoint(x: params.baseFrame.midX, y: params.baseFrame.midY)
+            if !animated || transition.animation.isImmediate {
+               lensView.bounds = CGRect(origin: CGPoint(), size: CGSize(width: params.baseFrame.width - 8.0, height: params.baseFrame.height - 8.0))
+               lensView.center = CGPoint(x: params.baseFrame.midX, y: params.baseFrame.midY)
+            } else {
+                transition.animateView {
+                    let liftedInset: CGFloat = params.isLifted ? 4.0 : -4.0
+                    lensView.bounds = CGRect(origin: CGPoint(), size: CGSize(width: params.baseFrame.width + liftedInset * 2.0, height: params.baseFrame.height + liftedInset * 2.0))
+                    lensView.center = CGPoint(x: params.baseFrame.midX, y: params.baseFrame.midY)
+                }
             }
             self.isApplyingLensParams = false
         }
     }
 
     private func updateLiftedLensPosition() {
-        // Without this, the lens won't update its bouncing animations unless it's being moved
-        if self.isApplyingLensParams {
-            return
-        }
         guard let lensView = self.lensView else {
             return
         }
-        guard let params = self.appliedLensParams else {
+        guard let params = self.params else {
             return
         }
-        lensView.center = CGPoint(x: params.baseFrame.midX, y: params.baseFrame.midY)
+        let baseLensFrame = CGRect(origin: CGPoint(x: max(0.0, min(params.selectionX, params.size.width - params.selectionWidth)), y: 0.0), size: CGSize(width: params.selectionWidth, height: params.size.height))
+        lensView.center = CGPoint(x: baseLensFrame.midX, y: baseLensFrame.midY)
+        
+        if let legacyContentMaskBlobView = self.legacyContentMaskBlobView,
+           let legacyLiftedContentBlobMaskView = self.legacyLiftedContentBlobMaskView,
+           let legacySelectionView = self.legacySelectionView {
+            let lensFrame = baseLensFrame.insetBy(dx: 4.0, dy: 4.0)
+            let effectiveLensFrame = lensFrame.insetBy(dx: params.isLifted ? -2.0 : 0.0, dy: params.isLifted ? -2.0 : 0.0)
+            
+            legacyContentMaskBlobView.frame = effectiveLensFrame
+            legacyLiftedContentBlobMaskView.frame = effectiveLensFrame
+            legacySelectionView.frame = effectiveLensFrame
+        }
     }
 
     private func update(params: Params, transition: ComponentTransition) {
@@ -324,14 +443,38 @@ public final class LiquidLensView: UIView {
         transition.setFrame(view: self.backgroundContainer, frame: CGRect(origin: CGPoint(), size: params.size))
         self.backgroundContainer.update(size: params.size, isDark: params.isDark, transition: transition)
         
-        transition.setFrame(view: self.backgroundView, frame: CGRect(origin: CGPoint(), size: params.size))
+        if transition.animation.isImmediate {
+            self.backgroundView.bounds = CGRect(origin: CGPoint(), size: params.size)
+            self.backgroundView.center = CGPoint(x: params.size.width / 2.0, y: params.size.height / 2.0)
+        } else {
+            transition.animateView {
+                self.backgroundView.bounds = CGRect(origin: CGPoint(), size: params.size)
+                self.backgroundView.center = CGPoint(x: params.size.width / 2.0, y: params.size.height / 2.0)
+            }
+        }
         self.backgroundView.update(size: params.size, cornerRadius: params.size.height * 0.5, isDark: params.isDark, tintColor: GlassBackgroundView.TintColor.init(kind: .panel, color: UIColor(white: params.isDark ? 0.0 : 1.0, alpha: 0.6)), isInteractive: true, transition: transition)
-        
-        transition.setFrame(view: self.contentView, frame: CGRect(origin: CGPoint(), size: params.size))
+
+        let liftedSizeBackgroundSize = CGSize(width: params.size.width - 10.0, height: params.size.height - 10.0)
+        transition.setFrame(view: self.liftedBackgroundView, frame: CGRect(origin: CGPoint(x: 5.0, y: 5.0), size: liftedSizeBackgroundSize))
+        self.liftedBackgroundView.update(size: liftedSizeBackgroundSize, cornerRadius: liftedSizeBackgroundSize.height * 0.5, isDark: params.isDark, tintColor: GlassBackgroundView.TintColor.init(kind: .panel, color: UIColor(white: params.isDark ? 0.0 : 1.0, alpha: 1.0)), isInteractive: true, transition: transition)
+
+        if transition.animation.isImmediate {
+            self.contentView.bounds = CGRect(origin: CGPoint(), size: params.size)
+            self.contentView.center = CGPoint(x: params.size.width / 2.0, y: params.size.height / 2.0)
+        } else {
+            transition.animateView {
+                self.contentView.bounds = CGRect(origin: CGPoint(), size: params.size)
+                self.contentView.center = CGPoint(x: params.size.width / 2.0, y: params.size.height / 2.0)
+            }
+        }
         transition.setFrame(view: self.liftedContainerView, frame: CGRect(origin: CGPoint(), size: params.size))
 
         let baseLensFrame = CGRect(origin: CGPoint(x: max(0.0, min(params.selectionX, params.size.width - params.selectionWidth)), y: 0.0), size: CGSize(width: params.selectionWidth, height: params.size.height))
         self.updateLens(params: LensParams(baseFrame: baseLensFrame, isLifted: params.isLifted), animated: !transition.animation.isImmediate)
+        
+        if params.isLifted, let lensView = self.lensView {
+            lensView.center = CGPoint(x: baseLensFrame.midX, y: baseLensFrame.midY)
+        }
         
         if let legacyContentMaskView = self.legacyContentMaskView {
             transition.setFrame(view: legacyContentMaskView, frame: CGRect(origin: CGPoint(), size: params.size))
@@ -345,17 +488,32 @@ public final class LiquidLensView: UIView {
                 legacyLiftedContentBlobMaskView.image = legacyContentMaskBlobView.image
                 legacySelectionView.image = generateStretchableFilledCircleImage(diameter: lensFrame.height, color: .white)?.withRenderingMode(.alwaysTemplate)
             }
-            transition.setFrame(view: legacyContentMaskBlobView, frame: effectiveLensFrame)
-            transition.setFrame(view: legacyLiftedContentBlobMaskView, frame: effectiveLensFrame)
-            
+
             legacySelectionView.tintColor = UIColor(white: params.isDark ? 1.0 : 0.0, alpha: params.isDark ? 0.1 : 0.075)
             transition.setFrame(view: legacySelectionView, frame: effectiveLensFrame)
-        }
 
+            let shouldShowLegacy = !params.isLifted
+
+            transition.setAlpha(view: legacyContentMaskBlobView, alpha: shouldShowLegacy ? 1.0 : 0.0)
+            transition.setAlpha(view: legacyLiftedContentBlobMaskView, alpha: shouldShowLegacy ? 1.0 : 1.0)
+            transition.setAlpha(view: legacySelectionView, alpha: shouldShowLegacy ? 1.0 : 0.0)
+            
+            if shouldShowLegacy {
+                ComponentTransition.immediate.setFrame(view: legacyContentMaskBlobView, frame: effectiveLensFrame)
+                ComponentTransition.immediate.setFrame(view: legacyLiftedContentBlobMaskView, frame: effectiveLensFrame)
+                legacySelectionView.tintColor = UIColor(white: params.isDark ? 1.0 : 0.0, alpha: params.isDark ? 0.1 : 0.075)
+                ComponentTransition.immediate.setFrame(view: legacySelectionView, frame: effectiveLensFrame)
+            } else {
+                transition.setFrame(view: legacyLiftedContentBlobMaskView, frame: effectiveLensFrame)
+                transition.setFrame(view: legacyContentMaskBlobView, frame: effectiveLensFrame)
+                transition.setFrame(view: legacySelectionView, frame: effectiveLensFrame)
+            }
+        }
+        
         transition.setFrame(view: self.restingBackgroundView, frame: CGRect(origin: CGPoint(), size: params.size))
         self.restingBackgroundView.update(isDark: params.isDark)
         transition.setAlpha(view: self.restingBackgroundView, alpha: params.isLifted ? 0.0 : 1.0)
-
+        
         if params.isLifted {
             if self.liftedDisplayLink == nil {
                 self.liftedDisplayLink = SharedDisplayLinkDriver.shared.add(framesPerSecond: .max, { [weak self] _ in

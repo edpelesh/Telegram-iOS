@@ -55,7 +55,7 @@ final class ChatUnblockInputPanelNode: ChatInputPanelNode {
         
         self.button.addTarget(self, action: #selector(self.buttonPressed), for: [.touchUpInside])
         
-        self.button.highligthedChanged = { [weak self] highlighted in
+        self.button.highlightedChanged = { [weak self] highlighted in
             guard let self else {
                 return
             }

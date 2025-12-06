@@ -114,7 +114,7 @@ public final class PlainButtonComponent: Component {
             
             self.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 if let self, self.bounds.width > 0.0 {
                     let animateAlpha = self.component?.animateAlpha ?? true
                     let animateScale = self.component?.animateScale ?? true

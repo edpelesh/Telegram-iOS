@@ -534,7 +534,7 @@ public final class PeerListItemComponent: Component {
                 component.contextAction?(peer, self.extractedContainerView, gesture)
             }
             
-            self.containerButton.highligthedChanged = { [weak self] highlighted in
+            self.containerButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

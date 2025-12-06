@@ -94,7 +94,7 @@ final class AccessoryItemIconButton: HighlightTrackingButton, GlassBackgroundVie
         
         self.accessibilityLabel = accessibilityLabel
         
-        self.highligthedChanged = { [weak self] highlighted in
+        self.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     strongSelf.layer.removeAnimation(forKey: "opacity")

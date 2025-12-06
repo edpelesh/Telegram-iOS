@@ -579,7 +579,7 @@ private final class PeerComponent: Component {
             self.button.addTarget(self, action: #selector(self.buttonPressed), for: .touchUpInside)
             self.addSubview(self.button)
             
-            self.button.highligthedChanged = { [weak self] highlighted in
+            self.button.highlightedChanged = { [weak self] highlighted in
                 if let self {
                     if highlighted {
                         self.selectionLayer.removeAnimation(forKey: "opacity")

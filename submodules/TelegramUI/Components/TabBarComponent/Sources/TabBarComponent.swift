@@ -12,6 +12,8 @@ import BundleIconComponent
 import TextBadgeComponent
 import LiquidLens
 import AppBundle
+import simd
+import LiquidGlassEffect
 
 private final class TabSelectionRecognizer: UIGestureRecognizer {
     private var initialLocation: CGPoint?
@@ -169,6 +171,9 @@ public final class TabBarComponent: Component {
         private let liquidLensView: LiquidLensView
         private let contextGestureContainerView: ContextControllerSourceView
         
+        private var glassKnob: LiquidGlassKnobView?
+        private var parentViewsWithClippingDisabled: [(view: UIView, originalClipsToBounds: Bool, originalMasksToBounds: Bool)] = []
+        
         private var itemViews: [AnyHashable: ComponentView<Empty>] = [:]
         private var selectedItemViews: [AnyHashable: ComponentView<Empty>] = [:]
         
@@ -178,16 +183,23 @@ public final class TabBarComponent: Component {
         private var component: TabBarComponent?
         private weak var state: EmptyComponentState?
 
-        private var selectionGestureState: (startX: CGFloat, currentX: CGFloat)?
+        private var selectionGestureState: (startX: CGFloat, currentX: CGFloat, startY: CGFloat, currentY: CGFloat)?
         private var overrideSelectedItemId: AnyHashable?
+        private var lastGestureVelocity: SIMD2<Float> = SIMD2<Float>(0, 0)
+        private var lastTouchLocation: CGPoint?
+        private var lastTouchTime: CFTimeInterval = 0
+        private var interactionUpdateTimer: ConstantDisplayLinkAnimator?
         
         public override init(frame: CGRect) {
             self.liquidLensView = LiquidLensView()
             
             self.contextGestureContainerView = ContextControllerSourceView()
             self.contextGestureContainerView.isGestureEnabled = true
+            self.contextGestureContainerView.clipsToBounds = false
             
             super.init(frame: frame)
+            
+            self.clipsToBounds = false
             
             if #available(iOS 17.0, *) {
                 self.traitOverrides.verticalSizeClass = .compact
@@ -197,6 +209,29 @@ public final class TabBarComponent: Component {
             self.addSubview(self.contextGestureContainerView)
             
             self.contextGestureContainerView.addSubview(self.liquidLensView)
+            
+            if #available(iOS 26.0, *) { } else {
+                let viewsToIgnore: [UIView] = self.liquidLensView.getViewsToIgnore()
+                let viewsToHide: [UIView] = self.liquidLensView.getViewsToHide()
+                let glassKnobFrame = CGRect(origin: CGPoint(x: -20.0, y: -30.0), size: CGSize(width: 220.0, height: 180.0))
+                let glassKnob = LiquidGlassKnobView(frame: glassKnobFrame, viewsToIgnore: viewsToIgnore, viewsToHide: viewsToHide)
+                glassKnob.isUserInteractionEnabled = false
+                glassKnob.clipsToBounds = false
+                glassKnob.useExpandedBounds = true
+                glassKnob.alpha = 0.0
+                glassKnob.thickness = 15.0
+                glassKnob.pillSmallSize = SIMD2<Float>(80.0, 50.0)
+                glassKnob.pillLargeSize = SIMD2<Float>(100.0, 80.0)
+                
+                self.addSubview(glassKnob)
+                self.glassKnob = glassKnob
+            }
+            
+            self.liquidLensView.onDragInteraction = { [weak self] horizontalDelta, viewWidth, viewHeight, isInteracting in
+                guard let self = self else { return }
+                self.applyDragTransform(horizontalDelta: horizontalDelta, viewWidth: viewWidth, viewHeight: viewHeight, isInteracting: isInteracting)
+            }
+            
             let tabSelectionRecognizer = TabSelectionRecognizer(target: self, action: #selector(self.onTabSelectionGesture(_:)))
             self.tabSelectionRecognizer = tabSelectionRecognizer
             self.addGestureRecognizer(tabSelectionRecognizer)
@@ -222,8 +257,8 @@ public final class TabBarComponent: Component {
                                 return
                             }
                             
-                            let dist = sqrt(pow(startPoint.x - point.x, 2.0) + pow(startPoint.y - point.y, 2.0))
-                            if dist > 10.0 {
+                            let distSquared = pow(startPoint.x - point.x, 2.0) + pow(startPoint.y - point.y, 2.0)
+                            if distSquared > 100.0 {
                                 self.contextGestureContainerView.contextGesture?.cancel()
                             }
                         }
@@ -283,19 +318,52 @@ public final class TabBarComponent: Component {
         @objc private func onTabSelectionGesture(_ recognizer: TabSelectionRecognizer) {
             switch recognizer.state {
             case .began:
-                if let itemId = self.item(at: recognizer.location(in: self)), let itemView = self.itemViews[itemId]?.view {
-                    let startX = itemView.frame.minX - 4.0
-                    self.selectionGestureState = (startX, startX)
+                if let itemId = self.item(at: recognizer.location(in: self)), let _ = self.itemViews[itemId]?.view {
+                    let location = recognizer.location(in: self)
+                    self.selectionGestureState = (location.x, location.x, location.y, location.y)
+                    self.lastGestureVelocity = SIMD2<Float>(0, 0)
+                    self.lastTouchLocation = recognizer.location(in: self)
+                    self.lastTouchTime = CACurrentMediaTime()
+                    self.startInteractionTracking()
                     self.state?.updated(transition: .spring(duration: 0.4), isLocal: true)
+                    
+                    self.liquidLensView.beginElasticInteraction(at: recognizer.location(in: self.liquidLensView))
                 }
             case .changed:
                 if var selectionGestureState = self.selectionGestureState {
-                    selectionGestureState.currentX = selectionGestureState.startX + recognizer.translation(in: self).x
+                    let translation = recognizer.translation(in: self)
+                    selectionGestureState.currentX = selectionGestureState.startX + translation.x
+                    selectionGestureState.currentY = selectionGestureState.startY + translation.y
                     self.selectionGestureState = selectionGestureState
+                    
+                    let currentLocation = recognizer.location(in: self)
+                    let currentTime = CACurrentMediaTime()
+                    if let lastLocation = self.lastTouchLocation, self.lastTouchTime > 0 {
+                        let dt = CGFloat(currentTime - self.lastTouchTime)
+                        if dt > 0 {
+                            let velocity = CGPoint(
+                                x: (currentLocation.x - lastLocation.x) / dt,
+                                y: (currentLocation.y - lastLocation.y) / dt
+                            )
+                            self.lastGestureVelocity = SIMD2<Float>(Float(velocity.x), Float(velocity.y))
+                        }
+                    }
+                    self.lastTouchLocation = currentLocation
+                    self.lastTouchTime = currentTime
+                    
+                    self.liquidLensView.updateElasticInteraction(translation: recognizer.translation(in: self.liquidLensView))
+
                     self.state?.updated(transition: .immediate, isLocal: true)
                 }
             case .ended, .cancelled:
+                let velocity = CGPoint(x: CGFloat(self.lastGestureVelocity.x), y: CGFloat(self.lastGestureVelocity.y))
+                self.liquidLensView.endElasticInteraction(velocity: velocity)
+
+                self.stopInteractionTracking()
                 self.selectionGestureState = nil
+                self.lastGestureVelocity = SIMD2<Float>(0, 0)
+                self.lastTouchLocation = nil
+                self.lastTouchTime = 0
                 if let component = self.component, let itemId = self.item(at: recognizer.location(in: self)) {
                     guard let item = component.items.first(where: { $0.id == itemId }) else {
                         return
@@ -348,6 +416,48 @@ public final class TabBarComponent: Component {
             return closestItem?.0
         }
         
+        private func applyDragTransform(horizontalDelta: CGFloat, viewWidth: CGFloat, viewHeight: CGFloat, isInteracting: Bool) {
+            guard isInteracting, let selectionGestureState = self.selectionGestureState else {
+                return
+            }
+            
+            let halfWidth = viewWidth * 0.5
+            let centerOffset = selectionGestureState.currentX - halfWidth
+            
+            let normalizedOffset = centerOffset / halfWidth
+            let clampedOffset = max(-1.0, min(1.0, normalizedOffset))
+
+            let maxTranslation: CGFloat = 2.0
+            let translation = clampedOffset * maxTranslation
+            
+            let verticalDelta = selectionGestureState.currentY - selectionGestureState.startY
+            
+            let upwardMovement = max(0, -verticalDelta)
+            
+            let tensionFactor: CGFloat = 30.0
+            let normalizedMovement = upwardMovement / tensionFactor
+            let tensionedMovement = log(1.0 + normalizedMovement) * tensionFactor
+            
+            let maxStretchAmount: CGFloat = 0.15
+            let stretchAmount = min(tensionedMovement / 100.0, 1.0) * maxStretchAmount
+            let scaleY = 1.0 + stretchAmount
+            
+            var transform = CATransform3DIdentity
+            transform = CATransform3DTranslate(transform, translation, 0, 0)
+            transform = CATransform3DScale(transform, 1.0, scaleY, 1.0)
+            
+            self.liquidLensView.layer.transform = transform
+            let growthAmount = viewHeight * stretchAmount
+            let positionOffset = -growthAmount / 2.0
+            
+            let basePosition = CGPoint(x: self.liquidLensView.bounds.midX, y: self.liquidLensView.bounds.midY)
+            
+            self.liquidLensView.layer.position = CGPoint(
+                x: basePosition.x,
+                y: basePosition.y + positionOffset
+            )
+        }
+        
         public override func didMoveToWindow() {
             super.didMoveToWindow()
             
@@ -362,10 +472,6 @@ public final class TabBarComponent: Component {
             self.component = component
             self.state = state
 
-            let _ = innerInset
-            let _ = availableSize
-            let _ = previousComponent
-            
             self.overrideUserInterfaceStyle = component.theme.overallDarkAppearance ? .dark : .light
 
             let itemSize = CGSize(width: floor((availableSize.width - innerInset * 2.0) / CGFloat(component.items.count)), height: 56.0)
@@ -463,12 +569,12 @@ public final class TabBarComponent: Component {
             }
 
             transition.setFrame(view: self.contextGestureContainerView, frame: CGRect(origin: CGPoint(), size: size))
-
             transition.setFrame(view: self.liquidLensView, frame: CGRect(origin: CGPoint(), size: size))
             
             let lensSelection: (x: CGFloat, width: CGFloat)
             if let selectionGestureState = self.selectionGestureState {
-                lensSelection = (selectionGestureState.currentX, itemSize.width + innerInset * 2.0)
+                let lensWidth = itemSize.width + innerInset * 2.0
+                lensSelection = (selectionGestureState.currentX - lensWidth * 0.5, lensWidth)
             } else if let selectionFrame {
                 lensSelection = (selectionFrame.minX - innerInset, itemSize.width + innerInset * 2.0)
             } else {
@@ -476,8 +582,205 @@ public final class TabBarComponent: Component {
             }
 
             self.liquidLensView.update(size: size, selectionX: lensSelection.x, selectionWidth: lensSelection.width, isDark: component.theme.overallDarkAppearance, isLifted: self.selectionGestureState != nil, transition: transition)
+            
+            if let glassKnob = self.glassKnob {
+                let isLifted = self.selectionGestureState != nil
+                let baseLensFrame = CGRect(origin: CGPoint(x: max(0.0, min(lensSelection.x, size.width - lensSelection.width)), y: 0.0), size: CGSize(width: lensSelection.width, height: size.height))
+                
+                var knobFrame: CGRect
+                var knobFrameInWindow: CGRect? = nil
+                if let window = self.window {
+                    let baseLensFrameInWindow = self.convert(baseLensFrame, to: window)
+                    let padding: CGFloat = 20.0
+                    knobFrameInWindow = CGRect(
+                        x: 0,
+                        y: baseLensFrameInWindow.origin.y - padding,
+                        width: window.bounds.width,
+                        height: baseLensFrameInWindow.height + (padding * 2)
+                    )
+                    knobFrame = self.convert(knobFrameInWindow!, from: window)
+                } else {
+                    knobFrame = baseLensFrame
+                    knobFrame.size.height += 40.0
+                    knobFrame.size.width += 60.0
+                    knobFrame.origin.y -= 20.0
+                    knobFrame.origin.x -= 30.0
+                }
+                
+                transition.setFrame(view: glassKnob, frame: knobFrame)
+                transition.setAlpha(view: glassKnob, alpha: isLifted ? 1.0 : 0.0)
+                glassKnob.lensSize = baseLensFrame.size
+                
+                if isLifted {
+                    disableClippingOnParentViews(for: glassKnob)
+                    
+                    let knobPosition: SIMD2<Float>
+                    if let window = self.window, let storedKnobFrameInWindow = knobFrameInWindow {
+                        let lensFrameInWindow = self.convert(baseLensFrame, to: window)
+                        let lensCenterInWindow = CGPoint(x: lensFrameInWindow.midX, y: lensFrameInWindow.midY)
+                        let knobCenterX = lensCenterInWindow.x - storedKnobFrameInWindow.origin.x
+                        let knobCenterY = lensCenterInWindow.y - storedKnobFrameInWindow.origin.y
+                        knobPosition = SIMD2<Float>(Float(round(knobCenterX)), Float(round(knobCenterY)))
+                    } else {
+                        let knobCenterX = baseLensFrame.midX - knobFrame.origin.x
+                        let knobCenterY = baseLensFrame.midY - knobFrame.origin.y
+                        knobPosition = SIMD2<Float>(Float(round(knobCenterX)), Float(round(knobCenterY)))
+                    }
+                    
+                    glassKnob.updateKnobPosition(knobPosition)
+                    self.liquidLensView.updateKnobPosition(knobPosition)
+                    
+                    if !self.liquidLensView.isInteracting {
+                        self.liquidLensView.setInteractionState(true)
+                        glassKnob.setInteractionState(true)
+                    }
+                    
+                    if let _ = self.selectionGestureState {
+                        self.liquidLensView.updateGestureVelocity(self.lastGestureVelocity)
+                        let touchLocation: CGPoint
+                        if let tabSelectionRecognizer = self.tabSelectionRecognizer {
+                            touchLocation = tabSelectionRecognizer.location(in: self)
+                        } else if let lastTouchLocation = self.lastTouchLocation {
+                            touchLocation = lastTouchLocation
+                        } else {
+                            return size
+                        }
+                        
+                        let touchLocationInGlassKnob = glassKnob.convert(touchLocation, from: self)
+                        let touchRelativeToKnob = SIMD2<Float>(
+                            Float(touchLocationInGlassKnob.x - CGFloat(knobPosition.x)),
+                            Float(touchLocationInGlassKnob.y - CGFloat(knobPosition.y))
+                        )
+                        
+                        glassKnob.updateTouchPosition(touchRelativeToKnob, velocity: self.lastGestureVelocity)
+                        self.liquidLensView.updateTouchPositionRelativeToKnob(touchRelativeToKnob)
+                    }
+                } else {
+                    restoreClippingOnParentViews()
+                    
+                    if self.liquidLensView.isInteracting {
+                        self.liquidLensView.setInteractionState(false)
+                        glassKnob.setInteractionState(false)
+                        glassKnob.updateTouchPosition(nil, velocity: SIMD2<Float>(0, 0))
+                        
+                        UIView.animate(withDuration: 0.25,
+                                      delay: 0,
+                                      usingSpringWithDamping: 0.8,
+                                      initialSpringVelocity: 0.5,
+                                      options: [.allowUserInteraction, .beginFromCurrentState],
+                                      animations: {
+                            self.liquidLensView.layer.transform = CATransform3DIdentity
+                            self.liquidLensView.layer.position = CGPoint(
+                                x: self.liquidLensView.bounds.midX,
+                                y: self.liquidLensView.bounds.midY
+                            )
+                        }, completion: nil)
+                    }
+                }
+            }
 
             return size
+        }
+        
+        private func startInteractionTracking() {
+            interactionUpdateTimer?.invalidate()
+            interactionUpdateTimer = nil
+            
+            let displayLink = ConstantDisplayLinkAnimator(update: { [weak self] in
+                self?.updateInteractionState()
+            })
+            displayLink.isPaused = false
+            self.interactionUpdateTimer = displayLink
+        }
+        
+        private func stopInteractionTracking() {
+            interactionUpdateTimer?.isPaused = true
+            interactionUpdateTimer = nil
+        }
+        
+        private func updateInteractionState() {
+            guard let component = self.component,
+                  let selectionGestureState = self.selectionGestureState else {
+                return
+            }
+            
+            let size = self.bounds.size
+            guard size.width > 0 && size.height > 0 else {
+                return
+            }
+            
+            let itemSize = component.items.isEmpty ? 0.0 : size.width / CGFloat(component.items.count)
+            let innerInset: CGFloat = 4.0
+            
+            let lensSelection: (x: CGFloat, width: CGFloat)
+            let lensWidth = itemSize + innerInset * 2.0
+            lensSelection = (selectionGestureState.currentX - lensWidth * 0.5, lensWidth)
+            
+            self.liquidLensView.update(size: size, selectionX: lensSelection.x, selectionWidth: lensSelection.width, isDark: component.theme.overallDarkAppearance, isLifted: true, transition: .immediate)
+            self.liquidLensView.updateGestureVelocity(self.lastGestureVelocity)
+            
+            let touchLocation: CGPoint
+            if let tabSelectionRecognizer = self.tabSelectionRecognizer {
+                touchLocation = tabSelectionRecognizer.location(in: self)
+            } else if let lastTouchLocation = self.lastTouchLocation {
+                touchLocation = lastTouchLocation
+            } else {
+                return
+            }
+
+            if let glassKnob = self.glassKnob,
+               let knobCenterPosition = self.liquidLensView.getKnobCenterPosition() {
+                let touchLocationInGlassKnob = glassKnob.convert(touchLocation, from: self)
+                let touchRelativeToKnob = SIMD2<Float>(
+                    Float(touchLocationInGlassKnob.x - CGFloat(knobCenterPosition.x)),
+                    Float(touchLocationInGlassKnob.y - CGFloat(knobCenterPosition.y))
+                )
+                
+                glassKnob.updateTouchPosition(touchRelativeToKnob, velocity: self.lastGestureVelocity)
+                self.liquidLensView.updateTouchPositionRelativeToKnob(touchRelativeToKnob)
+            } else {
+                let lensCenterX = lensSelection.x + lensSelection.width * 0.5
+                let lensCenterY = size.height * 0.5
+                let lensCenter = CGPoint(x: lensCenterX, y: lensCenterY)
+                let touchRelativeToLens = CGPoint(
+                    x: touchLocation.x - lensCenter.x,
+                    y: touchLocation.y - lensCenter.y
+                )
+                self.liquidLensView.updateTouchPositionRelativeToKnob(SIMD2<Float>(Float(touchRelativeToLens.x), Float(touchRelativeToLens.y)))
+            }
+        }
+        
+        private func disableClippingOnParentViews(for view: UIView) {
+            restoreClippingOnParentViews()
+            
+            var currentView: UIView? = view.superview
+            let viewFrameInView = view.bounds
+            
+            while let parentView = currentView {
+                let viewFrameInParent = view.convert(viewFrameInView, to: parentView)
+                let extendsBeyondBounds = !parentView.bounds.contains(viewFrameInParent)
+                
+                if (parentView.clipsToBounds || parentView.layer.masksToBounds) && extendsBeyondBounds {
+                    parentViewsWithClippingDisabled.append((
+                        view: parentView,
+                        originalClipsToBounds: parentView.clipsToBounds,
+                        originalMasksToBounds: parentView.layer.masksToBounds
+                    ))
+                    
+                    parentView.clipsToBounds = false
+                    parentView.layer.masksToBounds = false
+                }
+                
+                currentView = parentView.superview
+            }
+        }
+        
+        private func restoreClippingOnParentViews() {
+            for (view, originalClipsToBounds, originalMasksToBounds) in parentViewsWithClippingDisabled {
+                view.clipsToBounds = originalClipsToBounds
+                view.layer.masksToBounds = originalMasksToBounds
+            }
+            parentViewsWithClippingDisabled.removeAll()
         }
     }
     

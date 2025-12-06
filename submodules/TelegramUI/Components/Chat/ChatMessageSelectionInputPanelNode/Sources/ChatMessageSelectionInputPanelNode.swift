@@ -135,7 +135,7 @@ private final class GlassButtonView: UIView {
         
         if #available(iOS 26.0, *) {
         } else {
-            self.button.highligthedChanged = { [weak self] highlighted in
+            self.button.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

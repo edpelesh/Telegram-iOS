@@ -99,7 +99,7 @@ final class ChatSearchTitleAccessoryPanelNode: ChatTitleAccessoryPanelNode, Chat
             self.addSubview(self.containerButton)
             
             self.containerButton.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-            self.containerButton.highligthedChanged = { [weak self] highlighted in
+            self.containerButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }
@@ -259,7 +259,7 @@ final class ChatSearchTitleAccessoryPanelNode: ChatTitleAccessoryPanelNode, Chat
             self.containerButton.addSubview(self.background)
             
             self.containerButton.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-            self.containerButton.highligthedChanged = { [weak self] highlighted in
+            self.containerButton.highlightedChanged = { [weak self] highlighted in
                 if let self, self.bounds.width > 0.0 {
                     let topScale: CGFloat = (self.bounds.width - 1.0) / self.bounds.width
                     let maxScale: CGFloat = (self.bounds.width + 1.0) / self.bounds.width

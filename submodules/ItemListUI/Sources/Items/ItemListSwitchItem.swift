@@ -7,6 +7,7 @@ import TelegramPresentationData
 import SwitchNode
 import AppBundle
 import ComponentFlow
+import LiquidGlassEffect
 
 public enum ItemListSwitchItemNodeType {
     case regular
@@ -167,6 +168,13 @@ public class ItemListSwitchItemNode: ListViewItemNode, ItemListItemNode {
     
     private var item: ItemListSwitchItem?
     
+    private var glassKnob: LiquidGlassKnobView?
+    private var interactionUpdateTimer: ConstantDisplayLinkAnimator?
+    private var lastGestureVelocity: SIMD2<Float> = SIMD2<Float>(0, 0)
+    private var lastKnobPosition: SIMD2<Float>?
+    private var isInteracting: Bool = false
+    private var backgroundPillView: UIView?
+    
     public var tag: ItemListItemTag? {
         return self.item?.tag
     }
@@ -198,6 +206,7 @@ public class ItemListSwitchItemNode: ListViewItemNode, ItemListItemNode {
                 self.switchNode = SwitchNode()
             case .icon:
                 self.switchNode = IconSwitchNode()
+                self.switchNode.clipsToBounds = false
         }
         
         self.highlightedBackgroundNode = ASDisplayNode()
@@ -230,8 +239,256 @@ public class ItemListSwitchItemNode: ListViewItemNode, ItemListItemNode {
     override public func didLoad() {
         super.didLoad()
         
-        (self.switchNode.view as? UISwitch)?.addTarget(self, action: #selector(self.switchValueChanged(_:)), for: .valueChanged)
+        if let control = self.switchNode.view as? UIControl {
+            control.addTarget(self, action: #selector(self.switchValueChanged(_:)), for: .valueChanged)
+            control.addTarget(self, action: #selector(self.switchTouchDown), for: .touchDown)
+            control.addTarget(self, action: #selector(self.switchTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        }
         self.switchGestureNode.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.tapGesture(_:))))
+        
+        if #available(iOS 26.0, *) { } else {
+            if let switchNode = self.switchNode as? SwitchNode {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    if let switchView = self.switchNode.view as? UIControl {
+                        self.setupGlassKnob(switchView: switchView, switchNode: switchNode)
+                    }
+                }
+            }
+        }
+    }
+    
+    private func setupGlassKnob(switchView: UIControl, switchNode: SwitchNode) {
+        guard self.glassKnob == nil else { return }
+        
+        if let knobView = switchNode.knobView {
+            knobView.isHidden = true
+        }
+        
+        var knobFrame = switchView.bounds
+        knobFrame.size.height += 10.0
+        knobFrame.size.width += 30.0
+        knobFrame.origin.y -= 5.0
+        knobFrame.origin.x -= 15.0
+        
+        if #available(iOS 26.0, *) { } else {
+            let pillWidthScale: CGFloat = 0.9
+            let pillHeightScale: CGFloat = 0.7
+            let pillWidth = switchView.bounds.width * pillWidthScale
+            let pillHeight = switchView.bounds.height * pillHeightScale
+            let pillX = switchView.bounds.midX - pillWidth / 2
+            let pillY = switchView.bounds.midY - pillHeight / 2
+            
+            let pillFrame = switchView.convert(CGRect(x: pillX, y: pillY, width: pillWidth, height: pillHeight), to: self.view)
+            let backgroundPillView = UIView(frame: pillFrame)
+            backgroundPillView.isUserInteractionEnabled = false
+            
+            if let switchNode = self.switchNode as? SwitchNode {
+                let backgroundColor = switchNode.isOn ? switchNode.contentColor : switchNode.frameColor
+                backgroundPillView.backgroundColor = backgroundColor
+                backgroundPillView.layer.cornerRadius = pillHeight / 2
+                self.view.insertSubview(backgroundPillView, belowSubview: switchNode.view)
+                self.backgroundPillView = backgroundPillView
+                
+                switchView.addTarget(self, action: #selector(switchValueChangedForPill(_:)), for: UIControl.Event.valueChanged)
+            }
+        }
+        
+        var viewsToHide: [UIView] = []
+        if let switchView = switchNode.view as? UIControl {
+            viewsToHide.append(switchView)
+        }
+        if let knobView = switchNode.knobView {
+            viewsToHide.append(knobView)
+        }
+        
+        let glassKnob = LiquidGlassKnobView(frame: knobFrame, viewsToHide: viewsToHide, disableVerticalStretch: true)
+        glassKnob.isUserInteractionEnabled = false
+        glassKnob.clipsToBounds = false
+        glassKnob.shadowScale = 0.3
+        glassKnob.thickness = 8.0
+        glassKnob.useExpandedBounds = true
+        switchView.addSubview(glassKnob)
+        self.glassKnob = glassKnob
+        
+        self.disableClippingOnParentViews(for: glassKnob)
+        
+        switchNode.interactionBegan = { [weak self] in
+            guard let self = self else { return }
+            self.glassKnob?.setInteractionState(true)
+            self.lastGestureVelocity = SIMD2<Float>(0, 0)
+            self.isInteracting = true
+            
+            if let knobView = switchNode.knobView, let glassKnob = self.glassKnob {
+                switchView.layoutIfNeeded()
+                
+                let knobCenterInSwitch = knobView.center
+                let knobCenterInGlassKnob = glassKnob.convert(knobCenterInSwitch, from: switchView)
+                let lockedPosition = SIMD2<Float>(Float(round(knobCenterInGlassKnob.x)), Float(round(knobCenterInGlassKnob.y)))
+                self.lastKnobPosition = lockedPosition
+                glassKnob.updateKnobPosition(lockedPosition)
+            }
+            
+            self.startInteractionTracking()
+        }
+        
+        switchNode.interactionEnded = { [weak self] in
+            guard let self = self else { return }
+            self.stopInteractionTracking()
+            self.glassKnob?.setInteractionState(false)
+            self.glassKnob?.updateTouchPosition(nil, velocity: self.lastGestureVelocity)
+            self.lastGestureVelocity = SIMD2<Float>(0, 0)
+            self.isInteracting = false
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { [weak self] in
+                self?.updateKnobPosition(force: true)
+            }
+        }
+        
+        self.updateKnobPosition()
+    }
+    
+    private func startInteractionTracking() {
+        interactionUpdateTimer?.invalidate()
+        interactionUpdateTimer = nil
+        
+        let displayLink = ConstantDisplayLinkAnimator(update: { [weak self] in
+            self?.updateInteractionState()
+        })
+        displayLink.isPaused = false
+        self.interactionUpdateTimer = displayLink
+    }
+    
+    private func stopInteractionTracking() {
+        interactionUpdateTimer?.isPaused = true
+        interactionUpdateTimer = nil
+    }
+    
+    private func updateKnobPosition(force: Bool = false) {
+        guard let switchNode = self.switchNode as? SwitchNode,
+              let glassKnob = self.glassKnob,
+              let knobView = switchNode.knobView,
+              let switchView = switchNode.view as? UIControl else {
+            return
+        }
+        
+        guard switchView.bounds.width > 0 && switchView.bounds.height > 0 else {
+            return
+        }
+        
+        if isInteracting && !force {
+            return
+        }
+        
+        switchView.layoutIfNeeded()
+        
+        let knobCenterInSwitch = knobView.center
+        let knobCenterInGlassKnob = glassKnob.convert(knobCenterInSwitch, from: switchView)
+        
+        let quantizedX = round(knobCenterInGlassKnob.x)
+        let quantizedY = round(knobCenterInGlassKnob.y)
+        let newPosition = SIMD2<Float>(Float(quantizedX), Float(quantizedY))
+        
+        if let lastPosition = lastKnobPosition {
+            let threshold: Float = 0.5
+            if abs(newPosition.x - lastPosition.x) < threshold && 
+               abs(newPosition.y - lastPosition.y) < threshold {
+                return
+            }
+        }
+        
+        lastKnobPosition = newPosition
+        glassKnob.updateKnobPosition(newPosition)
+    }
+    
+    private func updateInteractionState() {
+        guard let switchNode = self.switchNode as? SwitchNode,
+              let glassKnob = self.glassKnob,
+              let knobView = switchNode.knobView,
+              let switchView = switchNode.view as? UIControl else {
+            return
+        }
+
+        let knobCenterInSwitch = knobView.center
+        let knobCenterInGlassKnob = glassKnob.convert(knobCenterInSwitch, from: switchView)
+        
+        let quantizedX = round(knobCenterInGlassKnob.x)
+        let quantizedY = round(knobCenterInGlassKnob.y)
+        let currentPosition = SIMD2<Float>(Float(quantizedX), Float(quantizedY))
+        
+        if isInteracting {
+            if lastKnobPosition == nil || 
+               abs(currentPosition.x - lastKnobPosition!.x) > 0.5 || 
+               abs(currentPosition.y - lastKnobPosition!.y) > 0.5 {
+                lastKnobPosition = currentPosition
+                glassKnob.updateKnobPosition(currentPosition)
+            }
+        }
+        
+        if let gestureRecognizers = switchView.gestureRecognizers {
+            for gestureRecognizer in gestureRecognizers {
+                var touchLocation: CGPoint?
+                var gestureVel = CGPoint.zero
+                
+                if let panGesture = gestureRecognizer as? UIPanGestureRecognizer {
+                    if panGesture.state == .began || panGesture.state == .changed {
+                        touchLocation = panGesture.location(in: switchView)
+                        gestureVel = panGesture.velocity(in: switchView)
+                    }
+                }
+                
+                if let touchLocation = touchLocation {
+                    let velocityInGlassKnob = glassKnob.convert(CGPoint(x: gestureVel.x, y: gestureVel.y), from: switchView)
+                    let gestureVelocity = SIMD2<Float>(Float(velocityInGlassKnob.x), Float(velocityInGlassKnob.y))
+                    lastGestureVelocity = gestureVelocity
+                    
+                    let touchLocationInGlassKnob = glassKnob.convert(touchLocation, from: switchView)
+                    let touchRelativeToKnob = SIMD2<Float>(
+                        Float(touchLocationInGlassKnob.x - CGFloat(currentPosition.x)),
+                        Float(touchLocationInGlassKnob.y - CGFloat(currentPosition.y))
+                    )
+                    
+                    glassKnob.updateTouchPosition(touchRelativeToKnob, velocity: gestureVelocity)
+                    break
+                }
+            }
+        }
+    }
+    
+    @objc private func switchTouchDown() {
+        self.startInteractionTracking()
+        self.glassKnob?.setInteractionState(true)
+    }
+    
+    @objc private func switchTouchUp() {
+        self.glassKnob?.setInteractionState(false)
+        self.glassKnob?.updateTouchPosition(nil, velocity: lastGestureVelocity)
+        self.lastGestureVelocity = SIMD2<Float>(0, 0)
+    }
+    
+    private func adjustSwitchTrackHeight(switchView: UISwitch) {
+        guard let firstSubview = switchView.subviews.first else { return }
+        
+        var trackView: UIView?
+        if #available(iOS 13.0, *) {
+            if let trackContainer = firstSubview.subviews.first {
+                trackView = trackContainer
+            }
+        } else {
+            trackView = firstSubview
+        }
+        
+        guard let trackView = trackView else { return }
+        
+        let targetHeight: CGFloat = 22.0
+        var trackFrame = trackView.frame
+        let originalHeight = trackFrame.height
+        if abs(originalHeight - targetHeight) > 0.5 {
+            let heightDiff = originalHeight - targetHeight
+            trackFrame.size.height = targetHeight
+            trackFrame.origin.y += heightDiff / 2.0
+            trackView.frame = trackFrame
+        }
     }
     
     func asyncLayout() -> (_ item: ItemListSwitchItem, _ params: ListViewItemLayoutParams, _ insets: ItemListNeighbors) -> (ListViewItemNodeLayout, (Bool) -> Void) {
@@ -402,7 +659,7 @@ public class ItemListSwitchItemNode: ListViewItemNode, ItemListItemNode {
                         strongSelf.backgroundNode.backgroundColor = itemBackgroundColor
                         
                         strongSelf.switchNode.frameColor = item.presentationData.theme.list.itemSwitchColors.frameColor
-                        strongSelf.switchNode.contentColor = item.presentationData.theme.list.itemSwitchColors.contentColor
+                        strongSelf.switchNode.contentColor = item.presentationData.theme.list.itemAccentColor
                         strongSelf.switchNode.handleColor = item.presentationData.theme.list.itemSwitchColors.handleColor
                         strongSelf.switchNode.positiveContentColor = item.presentationData.theme.list.itemSwitchColors.positiveColor
                         strongSelf.switchNode.negativeContentColor = item.presentationData.theme.list.itemSwitchColors.negativeColor
@@ -498,18 +755,66 @@ public class ItemListSwitchItemNode: ListViewItemNode, ItemListItemNode {
                         }
                     }
                     
-                    if let switchView = strongSelf.switchNode.view as? UISwitch {
+                    if let switchView = strongSelf.switchNode.view as? UIControl {
                         if strongSelf.switchNode.bounds.size.width.isZero {
                             switchView.sizeToFit()
                         }
                         let switchSize = switchView.bounds.size
+                        let switchFrame = CGRect(origin: CGPoint(x: params.width - params.rightInset - switchSize.width - 15.0, y: floor((contentSize.height - switchSize.height) / 2.0)), size: switchSize)
                         
-                        transition.updateFrame(node: strongSelf.switchNode, frame: CGRect(origin: CGPoint(x: params.width - params.rightInset - switchSize.width - 15.0, y: floor((contentSize.height - switchSize.height) / 2.0)), size: switchSize))
+                        transition.updateFrame(node: strongSelf.switchNode, frame: switchFrame)
                         strongSelf.switchGestureNode.frame = strongSelf.switchNode.frame
-                        if switchView.isOn != item.value {
-                            switchView.setOn(item.value, animated: animated)
+                        
+                        if let backgroundPill = strongSelf.backgroundPillView {
+                            let pillWidthScale: CGFloat = 0.9
+                            let pillHeightScale: CGFloat = 0.7
+                            let pillWidth = switchSize.width * pillWidthScale
+                            let pillHeight = switchSize.height * pillHeightScale
+                            let pillX = switchFrame.midX - pillWidth / 2
+                            let pillY = switchFrame.midY - pillHeight / 2
+                            backgroundPill.frame = CGRect(x: pillX, y: pillY, width: pillWidth, height: pillHeight)
+                            backgroundPill.layer.cornerRadius = pillHeight / 2
+                        }
+                        
+                        var currentValue = false
+                        if #available(iOS 26.0, *) {
+                            if let uiSwitch = switchView as? UISwitch {
+                                currentValue = uiSwitch.isOn
+                                if currentValue != item.value {
+                                    uiSwitch.setOn(item.value, animated: animated)
+                                }
+                            }
+                        } else {
+                            currentValue = (strongSelf.switchNode as? SwitchNode)?.isOn ?? false
+                            if currentValue != item.value {
+                                (strongSelf.switchNode as? SwitchNode)?.setOn(item.value, animated: animated)
+                            }
                         }
                         switchView.isUserInteractionEnabled = item.enableInteractiveChanges
+                        
+                        if #available(iOS 26.0, *) { } else {
+                            if let glassKnob = strongSelf.glassKnob {
+                                var knobFrame = switchView.bounds
+                                knobFrame.size.height += 10.0
+                                knobFrame.size.width += 30.0
+                                knobFrame.origin.y -= 5.0
+                                knobFrame.origin.x -= 15.0
+                                glassKnob.frame = knobFrame
+                                
+                                DispatchQueue.main.async {
+                                    strongSelf.updateKnobPosition(force: true)
+                                    glassKnob.setNeedsDisplay()
+                                }
+                            } else if let switchNode = strongSelf.switchNode as? SwitchNode {
+                                strongSelf.setupGlassKnob(switchView: switchView, switchNode: switchNode)
+                            }
+                            
+                            DispatchQueue.main.async {
+                                if let knobView = (strongSelf.switchNode as? SwitchNode)?.knobView {
+                                    knobView.isHidden = true
+                                }
+                            }
+                        }
                     }
                     strongSelf.switchGestureNode.isHidden = item.enableInteractiveChanges && item.enabled
                     
@@ -656,21 +961,89 @@ public class ItemListSwitchItemNode: ListViewItemNode, ItemListItemNode {
         self.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.15, removeOnCompletion: false)
     }
     
-    @objc private func switchValueChanged(_ switchView: UISwitch) {
+    @objc private func switchValueChanged(_ switchView: UIControl) {
         if let item = self.item {
-            let value = switchView.isOn
+            var value = false
+            if #available(iOS 26.0, *) {
+                if let uiSwitch = switchView as? UISwitch {
+                    value = uiSwitch.isOn
+                }
+            } else {
+                value = (self.switchNode as? SwitchNode)?.isOn ?? false
+            }
             item.updated(value)
         }
     }
     
+    @objc private func switchValueChangedForPill(_ switchView: UIControl) {
+        if #available(iOS 26.0, *) {
+            return
+        }
+        
+        guard let backgroundPill = self.backgroundPillView,
+              let switchNode = self.switchNode as? SwitchNode else {
+            return
+        }
+        
+        let backgroundColor = switchNode.isOn ? switchNode.contentColor : switchNode.frameColor
+        
+        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut], animations: {
+            backgroundPill.backgroundColor = backgroundColor
+        })
+    }
+    
     @objc private func tapGesture(_ recognizer: UITapGestureRecognizer) {
-        if let item = self.item, let switchView = self.switchNode.view as? UISwitch, case .ended = recognizer.state {
+        if let item = self.item, let switchView = self.switchNode.view as? UIControl, case .ended = recognizer.state {
             if item.enabled && !item.displayLocked {
-                let value = switchView.isOn
+                var value = false
+                if #available(iOS 26.0, *) {
+                    if let uiSwitch = switchView as? UISwitch {
+                        value = uiSwitch.isOn
+                    }
+                } else {
+                    value = (self.switchNode as? SwitchNode)?.isOn ?? false
+                }
                 item.updated(!value)
             } else {
                 item.activatedWhileDisabled()
             }
         }
+    }
+    
+    // MARK: - Clipping Handling
+
+    private var parentViewsWithClippingDisabled: [(view: UIView, originalClipsToBounds: Bool, originalMasksToBounds: Bool)] = []
+    
+    private func disableClippingOnParentViews(for glassKnob: UIView) {
+        restoreClippingOnParentViews()
+        
+        var currentView: UIView? = glassKnob.superview
+        let knobFrameInGlassKnob = glassKnob.bounds
+        
+        while let view = currentView, !(view is UIWindow) {
+            let knobFrameInView = glassKnob.convert(knobFrameInGlassKnob, to: view)
+            let extendsBeyondBounds = !view.bounds.contains(knobFrameInView)
+            
+            if (view.clipsToBounds || view.layer.masksToBounds) && extendsBeyondBounds {
+                parentViewsWithClippingDisabled.append((
+                    view: view,
+                    originalClipsToBounds: view.clipsToBounds,
+                    originalMasksToBounds: view.layer.masksToBounds
+                ))
+                
+                view.clipsToBounds = false
+                view.layer.masksToBounds = false
+            }
+            
+            currentView = view.superview
+        }
+    }
+    
+    private func restoreClippingOnParentViews() {
+        for (view, originalClipsToBounds, originalMasksToBounds) in parentViewsWithClippingDisabled {
+            view.clipsToBounds = originalClipsToBounds
+            view.layer.masksToBounds = originalMasksToBounds
+        }
+        parentViewsWithClippingDisabled.removeAll()
     }
 }

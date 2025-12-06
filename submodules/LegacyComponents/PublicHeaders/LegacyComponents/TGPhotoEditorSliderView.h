@@ -23,6 +23,7 @@
 @property (nonatomic, assign) bool displayEdges;
 @property (nonatomic, assign) bool useLinesForPositions;
 @property (nonatomic, assign) bool markPositions;
+@property (nonatomic, assign) bool useGlass;
 
 @property (nonatomic, readonly) bool knobStartedDragging;
 
@@ -47,6 +48,7 @@
 @property (nonatomic, assign) bool enableEdgeTap;
 
 - (void)setValue:(CGFloat)value animated:(BOOL)animated;
+- (void)setLastFeedbackPosition:(NSInteger)position;
 
 - (void)increase;
 - (void)increaseBy:(CGFloat)delta;
@@ -57,3 +59,4 @@
 @end
 
 extern const CGFloat TGPhotoEditorSliderViewMargin;
+extern const CGFloat TGPhotoEditorSliderViewGlassKnobInset;

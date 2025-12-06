@@ -119,7 +119,7 @@ private final class TitleFieldComponent: Component {
             self.addSubview(self.textField)
             self.addSubview(self.iconButton)
             
-            self.iconButton.highligthedChanged = { [weak self] highlighted in
+            self.iconButton.highlightedChanged = { [weak self] highlighted in
                 if let strongSelf = self, let iconView = strongSelf.iconView.view {
                     if highlighted {
                         iconView.layer.animateScale(from: 1.0, to: 0.8, duration: 0.25, removeOnCompletion: false)

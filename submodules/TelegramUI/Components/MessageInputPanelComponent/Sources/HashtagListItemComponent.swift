@@ -257,7 +257,7 @@ public final class HashtagListItemComponent: Component {
                 component.contextAction?(component.hashtag, self.extractedContainerView, gesture)
             }
             
-            self.containerButton.highligthedChanged = { [weak self] highlighted in
+            self.containerButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

@@ -115,7 +115,7 @@ private final class ChatMessageActionButtonNode: ASDisplayNode {
         self.buttonView = buttonView
         buttonView.isAccessibilityElement = false
         self.view.addSubview(buttonView)
-        buttonView.highligthedChanged = { [weak self] highlighted in
+        buttonView.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     //strongSelf.backgroundBlurNode.layer.removeAnimation(forKey: "opacity")

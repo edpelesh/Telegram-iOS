@@ -95,7 +95,7 @@ final class BrowserAddressListItemComponent: Component {
             
             self.containerButton.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
             
-            self.containerButton.highligthedChanged = { [weak self] highlighted in
+            self.containerButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

@@ -97,7 +97,7 @@ public class ActionSheetCheckboxItemNode: ActionSheetItemNode {
         self.addSubnode(self.checkNode)
         self.addSubnode(self.accessibilityArea)
         
-        self.button.highligthedChanged = { [weak self] highlighted in
+        self.button.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     strongSelf.backgroundNode.backgroundColor = strongSelf.theme.itemHighlightedBackgroundColor

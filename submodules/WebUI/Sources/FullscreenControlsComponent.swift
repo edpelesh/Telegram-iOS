@@ -110,7 +110,7 @@ final class FullscreenControlsComponent: Component {
             
             self.moreNode.updateColor(.white, transition: .immediate)
             
-            self.leftButton.highligthedChanged = { [weak self] highlighted in
+            self.leftButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

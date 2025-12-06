@@ -40,7 +40,7 @@ final class ConferenceButtonView: HighlightTrackingButton, OverlayMaskContainerV
         
         (self.layer as? MirroringLayer)?.targetLayer = self.maskContents.layer
         
-        self.internalHighligthedChanged = { [weak self] highlighted in
+        self.internalHighlightedChanged = { [weak self] highlighted in
             if let self, self.bounds.width > 0.0 {
                 let topScale: CGFloat = (self.bounds.width - 8.0) / self.bounds.width
                 let maxScale: CGFloat = (self.bounds.width + 2.0) / self.bounds.width

@@ -604,7 +604,7 @@ public final class StoryPeerListItemComponent: Component {
             self.indicatorShapeUnseenLayer.strokeColor = UIColor.white.cgColor
             self.indicatorShapeUnseenLayer.lineCap = .round
             
-            self.button.highligthedChanged = { [weak self] highlighted in
+            self.button.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

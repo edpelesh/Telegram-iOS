@@ -210,7 +210,7 @@ public final class ListComposePollOptionComponent: Component {
             
             self.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 if let self, self.bounds.width > 0.0 {
                     let animateScale = true
                     

@@ -85,7 +85,7 @@ public class ActionSheetButtonNode: ActionSheetItemNode {
         
         self.addSubnode(self.accessibilityArea)
         
-        self.button.highligthedChanged = { [weak self] highlighted in
+        self.button.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 strongSelf.setHighlighted(highlighted, animated: true)
             }

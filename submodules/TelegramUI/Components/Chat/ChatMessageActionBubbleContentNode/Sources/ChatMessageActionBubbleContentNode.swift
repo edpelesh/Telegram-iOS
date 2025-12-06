@@ -637,7 +637,7 @@ public class ChatMessageActionBubbleContentNode: ChatMessageBubbleContentNode {
                                     buyStarsButton.clipsToBounds = true
                                     strongSelf.buyStarsButton = buyStarsButton
                                     strongSelf.view.addSubview(buyStarsButton)
-                                    buyStarsButton.highligthedChanged = { [weak buyStarsButton] highlighted in
+                                    buyStarsButton.highlightedChanged = { [weak buyStarsButton] highlighted in
                                         guard let buyStarsButton else {
                                             return
                                         }

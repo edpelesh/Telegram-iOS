@@ -82,7 +82,7 @@ public class LocationBroadcastActionSheetItemNode: ActionSheetItemNode {
         self.addSubnode(self.label)
         self.addSubnode(self.timerNode)
         
-        self.button.highligthedChanged = { [weak self] highlighted in
+        self.button.highlightedChanged = { [weak self] highlighted in
             if let strongSelf = self {
                 if highlighted {
                     strongSelf.backgroundNode.backgroundColor = strongSelf.theme.itemHighlightedBackgroundColor

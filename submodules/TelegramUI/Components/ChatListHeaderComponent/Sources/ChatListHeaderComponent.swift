@@ -245,7 +245,7 @@ public final class ChatListHeaderComponent: Component {
             self.addSubview(self.titleOffsetContainer)
             self.titleOffsetContainer.addSubview(self.titleView)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }
@@ -1184,7 +1184,7 @@ public final class NavigationButtonComponent: Component {
             
             self.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

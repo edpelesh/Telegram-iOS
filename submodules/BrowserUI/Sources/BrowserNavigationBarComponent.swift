@@ -469,7 +469,7 @@ final class ReferenceButtonComponent: Component {
             self.addSubview(self.sourceView)
             self.sourceView.addSubnode(self.referenceNode)
             
-            self.highligthedChanged = { [weak self] highlighted in
+            self.highlightedChanged = { [weak self] highlighted in
                 if let strongSelf = self, let contentView = strongSelf.componentView.view {
                     if highlighted {
                         contentView.layer.removeAnimation(forKey: "opacity")

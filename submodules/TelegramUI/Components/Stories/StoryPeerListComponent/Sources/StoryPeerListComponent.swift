@@ -397,7 +397,7 @@ public final class StoryPeerListComponent: Component {
             self.addSubview(self.collapsedButton)
             self.addSubview(self.titleView)
             
-            self.collapsedButton.highligthedChanged = { [weak self] highlighted in
+            self.collapsedButton.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

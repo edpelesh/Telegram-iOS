@@ -7,23 +7,28 @@
 const CGFloat TGPhotoEditorSliderViewLineSize = 3.0f;
 const CGFloat TGPhotoEditorSliderViewMargin = 15.0f;
 const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
+const CGFloat TGPhotoEditorSliderViewGlassKnobInset = 10.0f;
 
 @interface TGPhotoEditorSliderView () <UIGestureRecognizerDelegate>
 {
     CGFloat _knobTouchStart;
     CGFloat _knobTouchCenterStart;
     CGFloat _knobDragCenter;
+    NSInteger _lastFeedbackPosition;
+    CFTimeInterval _lastDisplayUpdateTime;
     
     UIPanGestureRecognizer *_panGestureRecognizer;
     UITapGestureRecognizer *_tapGestureRecognizer;
     UITapGestureRecognizer *_edgeTapGestureRecognizer;
     UITapGestureRecognizer *_doubleTapGestureRecognizer;
+    UILongPressGestureRecognizer *_longPressGestureRecognizer;
     
     UIColor *_backColor;
     UIColor *_trackColor;
     UIColor *_startColor;
     
     bool _startHidden;
+    bool _useGlass;
     
     UISelectionFeedbackGenerator *_feedbackGenerator;
 }
@@ -43,6 +48,9 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
         _dotSize = 10.5f;
         _minimumUndottedValue = -1;
         _markPositions = true;
+        _useGlass = false;
+        _lastFeedbackPosition = -1;
+        _lastDisplayUpdateTime = 0.0;
         
         _lineSize = TGPhotoEditorSliderViewLineSize;
         _knobPadding = TGPhotoEditorSliderViewInternalMargin;
@@ -85,6 +93,12 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
         _doubleTapGestureRecognizer.numberOfTapsRequired = 2;
         [self addGestureRecognizer:_doubleTapGestureRecognizer];
         
+        _longPressGestureRecognizer = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+        _longPressGestureRecognizer.minimumPressDuration = 0.0;
+        _longPressGestureRecognizer.allowableMovement = CGFLOAT_MAX;
+        _longPressGestureRecognizer.enabled = false;
+        [self addGestureRecognizer:_longPressGestureRecognizer];
+        
         if (iosMajorVersion() >= 10)
             _feedbackGenerator = [[UISelectionFeedbackGenerator alloc] init];
     }
@@ -96,8 +110,21 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
 - (void)setPositionsCount:(NSInteger)positionsCount
 {
     _positionsCount = positionsCount;
-    _tapGestureRecognizer.enabled = !_disableSnapToPositions && _positionsCount > 1;
-    _doubleTapGestureRecognizer.enabled = !_tapGestureRecognizer.enabled;
+    _tapGestureRecognizer.enabled = !_disableSnapToPositions && _positionsCount > 1 && !_useGlass;
+    _doubleTapGestureRecognizer.enabled = !_tapGestureRecognizer.enabled && !_useGlass;
+}
+
+- (void)setUseGlass:(bool)useGlass
+{
+    _useGlass = useGlass;
+    
+    if (_useGlass) {
+        _tapGestureRecognizer.enabled = false;
+        _doubleTapGestureRecognizer.enabled = false;
+        _edgeTapGestureRecognizer.enabled = false;
+        _longPressGestureRecognizer.enabled = true;
+        _panGestureRecognizer.enabled = false;
+    }
 }
 
 - (void)drawRectangle:(CGRect)rect cornerRadius:(CGFloat)cornerRadius context:(CGContextRef)context
@@ -119,31 +146,57 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
     CGContextRef context = UIGraphicsGetCurrentContext();
     
     CGFloat margin = TGPhotoEditorSliderViewInternalMargin;
+    CGFloat knobInset = _useGlass ? TGPhotoEditorSliderViewGlassKnobInset : 0.0f;
+    CGFloat trackExtend = _useGlass ? 8.0f : 0.0f;
+    
     CGFloat visualMargin = _positionsCount > 1 ? margin : 2.0f;
-    CGFloat totalLength = self.frame.size.width - margin * 2;
+    CGFloat baseTotalLength = self.frame.size.width - margin * 2;
+    CGFloat totalLength = MAX(0.0f, baseTotalLength - knobInset * 2.0f);
     CGFloat visualTotalLength = self.frame.size.width - 2 * (_positionsCount > 1 ? margin : visualMargin);
+    
+    CGFloat trackMargin = visualMargin;
+    CGFloat trackTotalLength = visualTotalLength;
+    if (_useGlass) {
+        trackMargin = MAX(0.0f, trackMargin - trackExtend);
+        trackTotalLength = visualTotalLength + trackExtend * 2.0f;
+    }
+    
     CGFloat sideLength = self.frame.size.height;
     bool vertical = false;
     if (self.frame.size.width < self.frame.size.height)
     {
-        totalLength = self.frame.size.height - margin * 2;
+        baseTotalLength = self.frame.size.height - margin * 2;
+        totalLength = MAX(0.0f, baseTotalLength - knobInset * 2.0f);
         visualTotalLength = self.frame.size.height - 2 * (_positionsCount > 1 ? margin : visualMargin);
+        
+        trackMargin = visualMargin;
+        trackTotalLength = visualTotalLength;
+        if (_useGlass) {
+            trackMargin = MAX(0.0f, trackMargin - trackExtend);
+            trackTotalLength = visualTotalLength + trackExtend * 2.0f;
+        }
         sideLength = self.frame.size.width;
         vertical = true;
     }
     
-    CGFloat knobPosition = _knobPadding + (_knobView.highlighted ? _knobDragCenter : [self centerPositionForValue:_value totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical]);
-    knobPosition = MAX(_knobPadding, MIN(knobPosition, _knobPadding + totalLength));
+    CGFloat knobBias = (_useGlass && !_knobView.highlighted && _value >= _maximumValue - 0.0001f) ? 1.0f : 0.0f;
+    BOOL useDragCenter = _knobView.highlighted && (_useGlass || self.positionsCount < 2);
+    CGFloat knobPosition = _knobPadding + knobInset + (useDragCenter ? _knobDragCenter : [self centerPositionForValue:_value totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical]);
+    knobPosition = MAX(_knobPadding + knobInset, MIN(knobPosition + knobBias, _knobPadding + knobInset + totalLength + knobBias));
     
-    CGFloat lowerBoundPosition = _knobPadding + [self centerPositionForValue:_lowerBoundValue totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical];
+    CGFloat lowerBoundPosition = _knobPadding + knobInset + [self centerPositionForValue:_lowerBoundValue totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical];
     
-    CGFloat startPosition = visualMargin + visualTotalLength / (_maximumValue - _minimumValue) * (ABS(_minimumValue) + _startValue);
+    CGFloat viewWidth = vertical ? self.frame.size.height : self.frame.size.width;
+    CGFloat maxTrackTotalLength = viewWidth - trackMargin;
+    CGFloat effectiveTrackTotalLength = MIN(trackTotalLength, maxTrackTotalLength);
+    
+    CGFloat startPosition = trackMargin + effectiveTrackTotalLength / (_maximumValue - _minimumValue) * (ABS(_minimumValue) + _startValue);
     if (vertical)
-        startPosition = 2 * visualMargin + visualTotalLength - startPosition;
+        startPosition = 2 * trackMargin + effectiveTrackTotalLength - startPosition;
     
-    CGFloat endPosition = visualMargin + visualTotalLength / (_maximumValue - _minimumValue) * (ABS(_minimumValue) + _maximumValue);
+    CGFloat endPosition = trackMargin + effectiveTrackTotalLength / (_maximumValue - _minimumValue) * (ABS(_minimumValue) + _maximumValue);
     if (vertical)
-        endPosition = 2 * visualMargin + visualTotalLength - endPosition;
+        endPosition = 2 * trackMargin + effectiveTrackTotalLength - endPosition;
     
     CGFloat origin = startPosition;
     CGFloat track = knobPosition - startPosition;
@@ -153,7 +206,76 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
         origin -= track;
     }
     
-    CGRect backFrame = CGRectMake(visualMargin, (sideLength - _lineSize) / 2, visualTotalLength, _lineSize);
+    if (_useGlass) {
+        const CGFloat remapZone = 10.0f;
+        
+        CGFloat knobMinPosition = _knobPadding + knobInset;
+        CGFloat knobMaxPosition = _knobPadding + knobInset + totalLength;
+        
+        CGFloat distanceFromKnobMin = knobPosition - knobMinPosition;
+        CGFloat distanceFromKnobMax = knobMaxPosition - knobPosition;
+        
+        CGFloat boundaryKnobPosStart = knobMinPosition + remapZone;
+        CGFloat boundaryKnobPosEnd = knobMaxPosition - remapZone;
+        CGFloat normalTrackAtBoundaryStart = boundaryKnobPosStart - startPosition;
+        CGFloat normalTrackAtBoundaryEnd = boundaryKnobPosEnd - startPosition;
+        if (normalTrackAtBoundaryStart < 0) {
+            normalTrackAtBoundaryStart = fabs(normalTrackAtBoundaryStart);
+        }
+        if (normalTrackAtBoundaryEnd < 0) {
+            normalTrackAtBoundaryEnd = fabs(normalTrackAtBoundaryEnd);
+        }
+        
+        CGFloat maxTrackWidth = endPosition - startPosition;
+        if (maxTrackWidth < 0) {
+            maxTrackWidth = fabs(maxTrackWidth);
+        }
+        normalTrackAtBoundaryStart = MIN(normalTrackAtBoundaryStart, maxTrackWidth);
+        normalTrackAtBoundaryEnd = MIN(normalTrackAtBoundaryEnd, maxTrackWidth);
+        
+        if (distanceFromKnobMin <= 0) {
+            track = 0.0f;
+            origin = startPosition;
+        }
+        else if (distanceFromKnobMax <= 0) {
+            track = endPosition - startPosition;
+            if (track < 0) {
+                track = fabs(track);
+            }
+            origin = startPosition;
+        }
+        else if (distanceFromKnobMin <= remapZone) {
+            CGFloat normalizedPos = distanceFromKnobMin / remapZone;
+            CGFloat acceleratedPos = normalizedPos * normalizedPos * (3.0f - 2.0f * normalizedPos);
+            track = acceleratedPos * normalTrackAtBoundaryStart;
+            origin = startPosition;
+        }
+        else if (distanceFromKnobMax <= remapZone) {
+            CGFloat normalizedPos = 1.0f - (distanceFromKnobMax / remapZone);
+            CGFloat acceleratedPos = normalizedPos * normalizedPos * (3.0f - 2.0f * normalizedPos);
+            CGFloat trackRange = maxTrackWidth - normalTrackAtBoundaryEnd;
+            if (trackRange > 0) {
+                track = normalTrackAtBoundaryEnd + (acceleratedPos * trackRange);
+            } else {
+                track = maxTrackWidth;
+            }
+            origin = startPosition;
+        }
+    }
+    
+    CGRect backFrame = CGRectMake(trackMargin, (sideLength - _lineSize) / 2, effectiveTrackTotalLength, _lineSize);
+    
+    if (_useGlass) {
+        CGFloat maxTrackWidth = endPosition - startPosition;
+        if (maxTrackWidth < 0) {
+            maxTrackWidth = fabs(maxTrackWidth);
+        }
+        track = MIN(track, maxTrackWidth);
+        if (origin + track > endPosition) {
+            track = MAX(0, endPosition - origin);
+        }
+    }
+    
     CGRect trackFrame = CGRectMake(origin, (sideLength - _lineSize) / 2, track, _lineSize);
     CGRect startFrame = CGRectMake(startPosition - 4 / 2, (sideLength - 12) / 2, 4, 12);
     CGRect endFrame = CGRectMake(endPosition - 4 / 2, (sideLength - 12) / 2, 4, 12);
@@ -242,7 +364,33 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
             CGContextFillEllipseInRect(context, CGRectInset(knobFrame, 1.0f, 1.0f));
         }
         
-        if (self.positionsCount > 1)
+        if (_useGlass && self.useLinesForPositions && self.positionsCount > 1)
+        {
+            CGFloat dotRadius = 2.0f;
+            CGFloat knobTotalLength = (vertical ? self.frame.size.height : self.frame.size.width) - margin * 2;
+            knobTotalLength = MAX(0.0f, knobTotalLength - knobInset * 2.0f);
+            
+            for (NSInteger i = 0; i < self.positionsCount; i++)
+            {
+                if (!self.markPositions) {
+                    if (i != 0 && i != self.positionsCount - 1) {
+                        continue;
+                    }
+                }
+                
+                CGFloat dotX = _knobPadding + knobInset + knobTotalLength / (self.positionsCount - 1) * i;
+                CGFloat dotY = (sideLength - _lineSize) / 2 + _lineSize / 2.0f + 8.0f;
+                if (vertical) {
+                    CGFloat temp = dotX;
+                    dotX = dotY;
+                    dotY = temp;
+                }
+                
+                CGRect dotRect = CGRectMake(dotX - dotRadius, dotY - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
+                CGContextSetFillColorWithColor(context, passBackColor.CGColor);
+                CGContextFillEllipseInRect(context, dotRect);
+            }
+        } else if (self.positionsCount > 1)
         {
             for (NSInteger i = 0; i < self.positionsCount; i++)
             {
@@ -411,18 +559,23 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
         return;
     
     CGFloat margin = TGPhotoEditorSliderViewInternalMargin;
+    CGFloat knobInset = _useGlass ? TGPhotoEditorSliderViewGlassKnobInset : 0.0f;
     CGFloat totalLength = self.frame.size.width - margin * 2;
+    totalLength = MAX(0.0f, totalLength - knobInset * 2.0f);
     CGFloat sideLength = self.frame.size.height;
     bool vertical = false;
     if (self.frame.size.width < self.frame.size.height)
     {
         totalLength = self.frame.size.height - margin * 2;
+        totalLength = MAX(0.0f, totalLength - knobInset * 2.0f);
         sideLength = self.frame.size.width;
         vertical = true;
     }
     
-    CGFloat knobPosition = _knobPadding + (_knobView.highlighted && self.positionsCount < 2 ? _knobDragCenter : [self centerPositionForValue:_value totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical]);
-    knobPosition = MAX(_knobPadding, MIN(knobPosition, _knobPadding + totalLength));
+    CGFloat knobBias = (_useGlass && !_knobView.highlighted && _value >= _maximumValue - 0.0001f) ? 1.0f : 0.0f;
+    BOOL useDragCenter = _knobView.highlighted && (_useGlass || self.positionsCount < 2);
+    CGFloat knobPosition = _knobPadding + knobInset + (useDragCenter ? _knobDragCenter : [self centerPositionForValue:_value totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical]);
+    knobPosition = MAX(_knobPadding + knobInset, MIN(knobPosition + knobBias, _knobPadding + knobInset + totalLength + knobBias));
     
     CGRect knobViewFrame = CGRectMake(knobPosition - _knobView.image.size.width / 2, (sideLength - _knobView.image.size.height) / 2, _knobView.image.size.width, _knobView.image.size.height);
     
@@ -501,7 +654,9 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
 
 - (void)setEnablePanHandling:(bool)enablePanHandling {
     _enablePanHandling = enablePanHandling;
-    _panGestureRecognizer.enabled = enablePanHandling;
+    if (!_useGlass) {
+        _panGestureRecognizer.enabled = enablePanHandling;
+    }
 }
 
 #pragma mark - Touch Handling
@@ -564,7 +719,7 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
 
 - (void)setEnableEdgeTap:(bool)enableEdgeTap {
     _enableEdgeTap = enableEdgeTap;
-    _edgeTapGestureRecognizer.enabled = enableEdgeTap;
+    _edgeTapGestureRecognizer.enabled = enableEdgeTap && !_useGlass;
 }
 
 - (void)handleEdgeTap:(UITapGestureRecognizer *)gestureRecognizer {
@@ -608,6 +763,31 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
         self.reset();
 }
 
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gestureRecognizer
+{
+    if (!_useGlass) {
+        return;
+    }
+    
+    CGPoint touchLocation = [gestureRecognizer locationInView:self];
+    
+    if (gestureRecognizer.state == UIGestureRecognizerStateBegan) {
+        CGRect knobHitRect = CGRectInset(_knobView.frame, -30.0, -30.0);
+        if (CGRectContainsPoint(knobHitRect, touchLocation)) {
+            [self handleBeginTracking:touchLocation];
+            _knobStartedDragging = true;
+            
+            if (self.interactionBegan != nil)
+                self.interactionBegan();
+        }
+    } else if (gestureRecognizer.state == UIGestureRecognizerStateChanged) {
+        [self handleContinueTracking:touchLocation];
+    } else if (gestureRecognizer.state == UIGestureRecognizerStateEnded ||
+               gestureRecognizer.state == UIGestureRecognizerStateCancelled) {
+        [self handleEndTracking];
+    }
+}
+
 - (void)maybeCancelParentViewScrolling:(UIView *)parentView depth:(int32_t)depth
 {
     if (depth > 5)
@@ -624,40 +804,63 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
     }
 }
 
-- (BOOL)gestureRecognizerShouldBegin:(UIPanGestureRecognizer *)gestureRecognizer {
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
     if (gestureRecognizer == _panGestureRecognizer) {
-        CGPoint velocity = [gestureRecognizer velocityInView:gestureRecognizer.view];
-        if (ABS(velocity.x) > ABS(velocity.y)) {
-            return true;
-        } else {
-            return false;
-        }
+        CGPoint velocity = [(UIPanGestureRecognizer *)gestureRecognizer velocityInView:gestureRecognizer.view];
+        return ABS(velocity.x) > ABS(velocity.y);
     }
+    
+    if (gestureRecognizer == _longPressGestureRecognizer && _useGlass) {
+        CGPoint touchLocation = [gestureRecognizer locationInView:self];
+        CGRect knobHitRect = CGRectInset(_knobView.frame, -35.0, -35.0);
+        return CGRectContainsPoint(knobHitRect, touchLocation);
+    }
+    
     return true;
 }
 
 
 - (BOOL)beginTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)__unused event
 {
-    if (!_enablePanHandling) {
+    if (!_enablePanHandling && !_useGlass) {
         CGPoint touchLocation = [touch locationInView:self];
         [self handleBeginTracking:touchLocation];
     }
-    return true;
+    return !_useGlass;
 }
 
 - (void)handleBeginTracking:(CGPoint)touchLocation {
+    _lastFeedbackPosition = -1;
+    
     _knobView.highlighted = true;
+    
+    CGFloat knobInset = _useGlass ? TGPhotoEditorSliderViewGlassKnobInset : 0.0f;
+    bool vertical = self.frame.size.width < self.frame.size.height;
+    CGFloat margin = TGPhotoEditorSliderViewInternalMargin;
+    CGFloat totalLength = (vertical ? self.frame.size.height : self.frame.size.width) - margin * 2;
+    totalLength = MAX(0.0f, totalLength - knobInset * 2.0f);
     
     if (self.frame.size.width > self.frame.size.height)
     {
-        _knobTouchCenterStart = _knobView.center.x;
-        _knobTouchStart = _knobDragCenter = touchLocation.x;
+        _knobTouchStart = touchLocation.x;
+        if (_useGlass) {
+            _knobTouchCenterStart = [self centerPositionForValue:_value totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical];
+            _knobDragCenter = _knobTouchCenterStart;
+        } else {
+            _knobTouchCenterStart = _knobView.center.x;
+            _knobDragCenter = touchLocation.x;
+        }
     }
     else
     {
-        _knobTouchCenterStart = _knobView.center.y;
-        _knobTouchStart = _knobDragCenter = touchLocation.y;
+        _knobTouchStart = touchLocation.y;
+        if (_useGlass) {
+            _knobTouchCenterStart = [self centerPositionForValue:_value totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical];
+            _knobDragCenter = _knobTouchCenterStart;
+        } else {
+            _knobTouchCenterStart = _knobView.center.y;
+            _knobDragCenter = touchLocation.y;
+        }
     }
     
     _knobStartedDragging = false;
@@ -669,16 +872,34 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
 
 - (BOOL)continueTrackingWithTouch:(UITouch *)touch withEvent:(UIEvent *)__unused event
 {
-    if (!_enablePanHandling) {
+    if (!_enablePanHandling && !_useGlass) {
         CGPoint touchLocation = [touch locationInView:self];
         [self handleContinueTracking:touchLocation];
     }
-    return true;
+    return !_useGlass;
 }
 
 - (BOOL)handleContinueTracking:(CGPoint)touchLocation
 {
-    if (fabs(touchLocation.x - _knobTouchStart) > 1.0f && !_knobStartedDragging)
+    CGFloat knobInset = _useGlass ? TGPhotoEditorSliderViewGlassKnobInset : 0.0f;
+    
+    CGFloat totalLength = self.frame.size.width;
+    bool vertical = false;
+    CGFloat currentTouchPos = touchLocation.x;
+    
+    if (self.frame.size.width > self.frame.size.height)
+    {
+        vertical = false;
+        currentTouchPos = touchLocation.x;
+    }
+    else
+    {
+        vertical = true;
+        totalLength = self.frame.size.height;
+        currentTouchPos = touchLocation.y;
+    }
+    
+    if (fabs(currentTouchPos - _knobTouchStart) > 1.0f && !_knobStartedDragging)
     {
         _knobStartedDragging = true;
         
@@ -686,25 +907,18 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
             self.interactionBegan();
     }
     
-    _knobDragCenter = _knobTouchCenterStart - _knobTouchStart - _knobPadding;
+    totalLength -= (_knobPadding + knobInset) * 2;
     
-    CGFloat totalLength = self.frame.size.width;
-    bool vertical = false;
-    
-    if (self.frame.size.width > self.frame.size.height)
-    {
-        _knobDragCenter += touchLocation.x;
+    if (_useGlass) {
+        CGFloat touchDelta = currentTouchPos - _knobTouchStart;
+        _knobDragCenter = _knobTouchCenterStart + touchDelta;
+    } else {
+        _knobDragCenter = _knobTouchCenterStart - _knobTouchStart - (_knobPadding + knobInset);
+        _knobDragCenter += currentTouchPos;
     }
-    else
-    {
-        vertical = true;
-        totalLength = self.frame.size.height;
-        _knobDragCenter += touchLocation.y;
-    }
-    totalLength -= _knobPadding * 2;
     
     CGFloat previousValue = self.value;
-    if (self.positionsCount > 1 && !self.disableSnapToPositions)
+    if (self.positionsCount > 1 && !self.disableSnapToPositions && !(_useGlass && self.positionsCount > 1))
     {
         NSInteger position = (NSInteger)round((_knobDragCenter / totalLength) * (self.positionsCount - 1));
         
@@ -718,15 +932,52 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
             _knobDragCenter = MAX(_knobDragCenter, _lowerBoundValue * totalLength);
         }
     }
+    _knobDragCenter = MAX(0.0f, MIN(_knobDragCenter, totalLength));
     
-    [self setValue:[self valueForCenterPosition:_knobDragCenter totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical]];
-    if (previousValue != self.value && !self.disableSnapToPositions && (self.positionsCount > 1 || self.value == self.minimumValue || self.value == self.maximumValue || (self.minimumValue != self.startValue && self.value == self.startValue)))
-    {
-        [_feedbackGenerator selectionChanged];
-        [_feedbackGenerator prepare];
+    if (!(_useGlass && self.positionsCount > 1)) {
+        [self setValue:[self valueForCenterPosition:_knobDragCenter totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical]];
+        if (previousValue != self.value && !self.disableSnapToPositions && (self.positionsCount > 1 || self.value == self.minimumValue || self.value == self.maximumValue || (self.minimumValue != self.startValue && self.value == self.startValue)))
+        {
+            [_feedbackGenerator selectionChanged];
+            [_feedbackGenerator prepare];
+        }
+    } else {
+        CGFloat newValue = [self valueForCenterPosition:_knobDragCenter totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical];
+        if (_lowerBoundValue > FLT_EPSILON) {
+            _value = MIN(MAX(_lowerBoundValue, MAX(newValue, _minimumValue)), _maximumValue);
+        } else {
+            _value = MIN(MAX(newValue, _minimumValue), _maximumValue);
+        }
     }
     
-    [self setNeedsLayout];
+    if (_useGlass && self.positionsCount > 1) {
+        CGFloat margin = TGPhotoEditorSliderViewInternalMargin;
+        CGFloat knobInset = TGPhotoEditorSliderViewGlassKnobInset;
+        CGFloat totalLength = (vertical ? self.frame.size.height : self.frame.size.width) - margin * 2;
+        totalLength = MAX(0.0f, totalLength - knobInset * 2.0f);
+        CGFloat sideLength = vertical ? self.frame.size.width : self.frame.size.height;
+        
+        CGFloat knobPosition = _knobPadding + knobInset + _knobDragCenter;
+        knobPosition = MAX(_knobPadding + knobInset, MIN(knobPosition, _knobPadding + knobInset + totalLength));
+        
+        CGRect knobViewFrame = CGRectMake(knobPosition - _knobView.image.size.width / 2, (sideLength - _knobView.image.size.height) / 2, _knobView.image.size.width, _knobView.image.size.height);
+        
+        if (vertical) {
+            _knobView.frame = CGRectMake(knobViewFrame.origin.y, knobViewFrame.origin.x, knobViewFrame.size.width, knobViewFrame.size.height);
+        } else {
+            _knobView.frame = knobViewFrame;
+        }
+        
+        CFTimeInterval now = CACurrentMediaTime();
+        CFTimeInterval minDisplayInterval = 1.0 / 60.0; // 60 FPS
+        if (now - _lastDisplayUpdateTime >= minDisplayInterval) {
+            [self setNeedsDisplay];
+            _lastDisplayUpdateTime = now;
+        }
+    } else {
+        [self setNeedsLayout];
+    }
+    
     if (!_limitValueChangedToLatestState) {
         [self sendActionsForControlEvents:UIControlEventValueChanged];
     }
@@ -736,7 +987,7 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
 
 - (void)endTrackingWithTouch:(UITouch *)__unused touch withEvent:(UIEvent *)__unused event
 {
-    if (!_enablePanHandling) {
+    if (!_enablePanHandling && !_useGlass) {
         [self handleEndTracking];
     }
 }
@@ -745,16 +996,48 @@ const CGFloat TGPhotoEditorSliderViewInternalMargin = 7.0f;
 {
     _knobView.highlighted = false;
     
+    if (_useGlass && self.positionsCount > 1 && !self.disableSnapToPositions) {
+        CGFloat knobInset = TGPhotoEditorSliderViewGlassKnobInset;
+        bool vertical = self.frame.size.width < self.frame.size.height;
+        CGFloat margin = TGPhotoEditorSliderViewInternalMargin;
+        CGFloat totalLength = (vertical ? self.frame.size.height : self.frame.size.width) - margin * 2;
+        totalLength = MAX(0.0f, totalLength - knobInset * 2.0f);
+        
+        NSInteger position = (NSInteger)round((_knobDragCenter / totalLength) * (self.positionsCount - 1));
+        
+        if (_lowerBoundValue > 0.0f) {
+            position = MAX(position, (NSInteger)_lowerBoundValue);
+        }
+        
+        CGFloat targetDragCenter = position * totalLength / (self.positionsCount - 1);
+        
+        if (position != _lastFeedbackPosition) {
+            [_feedbackGenerator selectionChanged];
+            _lastFeedbackPosition = position;
+        }
+
+        CGFloat snappedValue = [self valueForCenterPosition:targetDragCenter totalLength:totalLength knobSize:_knobView.image.size.width vertical:vertical];
+        [self setValue:snappedValue];
+        
+        _knobDragCenter = targetDragCenter;
+    }
+    
     [self sendActionsForControlEvents:UIControlEventValueChanged];
     [self setNeedsLayout];
+    [self layoutIfNeeded];
     
     if (self.interactionEnded != nil)
         self.interactionEnded();
 }
 
+- (void)setLastFeedbackPosition:(NSInteger)position
+{
+    _lastFeedbackPosition = position;
+}
+
 - (void)cancelTrackingWithEvent:(UIEvent *)__unused event
 {
-    if (!_enablePanHandling) {
+    if (!_enablePanHandling && !_useGlass) {
         [self handleCancelTracking];
     }
 }

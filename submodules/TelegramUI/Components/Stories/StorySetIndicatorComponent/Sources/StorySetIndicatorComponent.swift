@@ -339,7 +339,7 @@ public final class StorySetIndicatorComponent: Component {
             self.addSubview(self.button)
             
             self.button.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-            self.button.highligthedChanged = { [weak self] highlighted in
+            self.button.highlightedChanged = { [weak self] highlighted in
                 guard let self else {
                     return
                 }

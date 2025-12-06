@@ -244,7 +244,7 @@ public final class ChatTextInputActionButtonsNode: ASDisplayNode, ChatSendMessag
         self.sendContainerNode.addSubnode(self.textNode)
         self.view.addSubview(self.expandMediaInputButton)
         
-        self.expandMediaInputButton.highligthedChanged = { [weak self] highlighted in
+        self.expandMediaInputButton.highlightedChanged = { [weak self] highlighted in
             guard let self else {
                 return
             }

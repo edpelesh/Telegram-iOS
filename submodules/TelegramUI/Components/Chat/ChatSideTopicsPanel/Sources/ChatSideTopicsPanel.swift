@@ -1049,7 +1049,7 @@ public final class ChatSideTopicsPanel: Component {
             self.addSubview(self.containerNode.view)
             
             self.containerButton.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
-            self.containerButton.highligthedChanged = { [weak self] highlighted in
+            self.containerButton.highlightedChanged = { [weak self] highlighted in
                 if let self, self.bounds.width > 0.0 {
                     let topScale: CGFloat = (self.bounds.width - 1.0) / self.bounds.width
                     let maxScale: CGFloat = (self.bounds.width + 1.0) / self.bounds.width
